@@ -27,3 +27,28 @@ def recognition_inputs(input_files, tmp_path):
     path = tmp_path / "recognition.json"
     shutil.copyfile(FIXTURES / "recognition-demo.json", path)
     return load_recording(input_files[0]), WindowConfig(4000, 4000), path
+
+
+@pytest.fixture
+def make_result():
+    from itertools import count
+    from wcs_event_recorder.models import AudioWindow, RecognitionCandidate, RecognitionResult, RecognitionStatus
+    serial = count()
+
+    def make(title="A", *, artist="Artist", start=0, frames=4, run_id="run", source_id="source", mappings=(), status=None, result_id=None):
+        status = status or (RecognitionStatus.MATCH if title is not None else RecognitionStatus.NO_MATCH)
+        candidate = RecognitionCandidate(title, artist, mappings) if status == RecognitionStatus.MATCH else None
+        return RecognitionResult(
+            result_id or f"result-{next(serial)}", run_id, AudioWindow(source_id, start, frames), "fixture", status,
+            {"synthetic": True}, candidate, "simulated failure" if status == RecognitionStatus.ERROR else None,
+        )
+    return make
+
+
+@pytest.fixture
+def aggregation_inputs(input_files, tmp_path):
+    from wcs_event_recorder.inputs import load_recording
+    from wcs_event_recorder.windows import WindowConfig
+    path = tmp_path / "aggregation.json"
+    shutil.copyfile(FIXTURES / "aggregation-demo.json", path)
+    return load_recording(input_files[0]), WindowConfig(2000, 2000), path

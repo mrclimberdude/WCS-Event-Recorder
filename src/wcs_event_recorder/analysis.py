@@ -4,7 +4,9 @@ from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from .models import AnalysisRun, AudioChunk, RecognitionOutcome, RecognitionResult, RecognitionStatus
+from .models import AnalysisRun, AudioChunk, RecognitionOutcome, RecognitionResult, RecognitionStatus, SongPlay, TrackResolution
+from .aggregation import SongPlayAggregator
+from .resolution import TrackResolver
 from .recognition import RecognitionServiceError, Recognizer
 
 
@@ -32,6 +34,25 @@ def recognize_windows(
                 str(uuid4()), run.run_id, audio.window, outcome.provider, outcome.status,
                 outcome.raw_evidence, outcome.candidate, outcome.error,
             )
+    finally:
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
+
+
+def aggregate_results(
+    results: Iterable[RecognitionResult], resolver: TrackResolver, aggregator: SongPlayAggregator
+) -> Iterator[RecognitionResult | TrackResolution | SongPlay]:
+    """Emit raw evidence before deriving decisions, then close plays only at normal EOF."""
+    iterator = iter(results)
+    try:
+        for result in iterator:
+            yield result
+            resolution = resolver.resolve(result) if result.status == RecognitionStatus.MATCH else None
+            if resolution is not None:
+                yield resolution
+            yield from aggregator.accept(result, resolution)
+        yield from aggregator.finish()
     finally:
         close = getattr(iterator, "close", None)
         if close is not None:

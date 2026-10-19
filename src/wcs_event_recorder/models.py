@@ -191,6 +191,14 @@ class Track:
     artist: str
     external_mappings: tuple[ExternalTrackMapping, ...] = ()
 
+    def __post_init__(self) -> None:
+        for name in ("track_id", "title", "artist"):
+            _text(getattr(self, name), name)
+        if not isinstance(self.external_mappings, tuple) or any(
+            not isinstance(item, ExternalTrackMapping) for item in self.external_mappings
+        ):
+            raise ValueError("track external_mappings must be an immutable tuple of mappings")
+
 
 @dataclass(frozen=True)
 class RecognitionCandidate:
@@ -277,6 +285,31 @@ class Inference:
     evidence_ids: tuple[str, ...] = ()
 
 
+class ResolutionDecision(StrEnum):
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+
+
+@dataclass(frozen=True)
+class TrackResolution:
+    result_id: str
+    decision: ResolutionDecision
+    policy_version: str
+    reason: str
+    track: Track | None = None
+    conflicting_track_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("result_id", "policy_version", "reason"):
+            _text(getattr(self, name), name)
+        if not isinstance(self.decision, ResolutionDecision):
+            raise ValueError("decision must be a ResolutionDecision")
+        if (self.decision == ResolutionDecision.RESOLVED) != (self.track is not None):
+            raise ValueError("only resolved decisions must contain a Track")
+        if self.track is not None and not isinstance(self.track, Track):
+            raise ValueError("track must be a Track")
+
+
 @dataclass(frozen=True)
 class SongPlay:
     play_id: str
@@ -287,6 +320,32 @@ class SongPlay:
     live_inference: Inference | None = None
     final_inference: Inference | None = None
     reviewed: bool = False
+    boundary_method: str = "recognition_window_envelope_v1"
+    aggregation_policy: str = "continuity_v1"
+    closure_reason: str = "end_of_source"
+    closing_result_id: str | None = None
+    bridged_result_ids: tuple[str, ...] = ()
+    uncertainty_flags: tuple[str, ...] = ()
+    overlapping_play_ids: tuple[str, ...] = ()
+    analysis_stage: str = "live_provisional"
+
+    def __post_init__(self) -> None:
+        for name in ("play_id", "run_id", "track_id", "boundary_method", "aggregation_policy", "analysis_stage"):
+            _text(getattr(self, name), name)
+        if self.closure_reason not in {"track_changed", "gap_exceeded", "end_of_source"}:
+            raise ValueError("invalid play closure_reason")
+        if not self.recognition_result_ids:
+            raise ValueError("a play must have supporting recognition results")
+        for name in ("recognition_result_ids", "bridged_result_ids", "overlapping_play_ids", "uncertainty_flags"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or len(values) != len(set(values)):
+                raise ValueError(f"{name} must be an immutable tuple of unique strings")
+            for value in values:
+                _text(value, name)
+        if set(self.recognition_result_ids) & set(self.bridged_result_ids):
+            raise ValueError("supporting and bridged recognition evidence must be disjoint")
+        if self.closing_result_id is not None:
+            _text(self.closing_result_id, "closing_result_id")
 
 
 @dataclass(frozen=True)

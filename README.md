@@ -6,7 +6,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 steps 1–4 are implemented: package/CLI setup, input validation, accelerated/paced file replay, recognition-window assembly, strict fixture recognition, and streaming run evidence. Track resolution, song-play aggregation, SQLite persistence, schedule attribution, and real-provider evaluation remain. The real event evaluation sample still needs to be selected.
+Phase 1 steps 1–5 are implemented: package/CLI, input validation, file replay, recognition windows/fixtures, conservative track resolution, provisional song-play aggregation, and streaming evidence. SQLite persistence, schedule attribution, and real-provider evaluation remain. The real event evaluation sample still needs to be selected.
 
 ## Setup and verification
 
@@ -54,6 +54,16 @@ Use the same synthetic demo to assemble recognition windows and save declared ou
 
 Expect four attempts: two matches, one no-match, and one simulated service error, with processing continuing after the error. The JSONL file preserves run metadata and raw/normalized evidence, with no PCM bytes. Choose a new output filename on each run; existing files are never overwritten. Add `--mode paced` to simulate availability over two seconds. Fixture responses are declared answers for synthetic audio. See the [recognition guide](docs/recognition.md) for schemas, timing, artifact inspection, and manual checks.
 
+## Try song-play aggregation
+
+The new fixture declares `A, A, A, B, B, A, A, no-match` for the same two-second source:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe aggregate-fixture --manifest data/samples/demo/manifest.json --fixture tests/fixtures/aggregation-demo.json --chunk-seconds 0.1 --window-seconds 0.25 --hop-seconds 0.25 --max-gap-seconds 0.25 --output data/runs/aggregation-demo.jsonl
+```
+
+Expect two track identities and three provisional plays: A at estimated frames `[0, 6000)`, B at `[6000, 10000)`, and A again at `[10000, 14000)`. The two A plays share a track ID and have different play IDs. The final unknown window does not extend the last play. Version-2 JSONL preserves raw results, resolution decisions, and play evidence. Existing `recognize-fixture` output remains version 1. See the [aggregation guide](docs/aggregation.md) for identity, gap, boundary, and failure policies.
+
 ## Start here
 
 - [Project overview](docs/project-overview.md): goals, architecture, data model, and constraints.
@@ -61,7 +71,9 @@ Expect four attempts: two matches, one no-match, and one simulated service error
 - [Input formats](docs/input-formats.md): manifest and schedule schemas, time rules, and validation behavior.
 - [File replay](docs/replay.md): bounded WAV reading, replay modes, and manual verification.
 - [Recognition](docs/recognition.md): window assembly, fixture recognition, and saved run evidence.
+- [Aggregation](docs/aggregation.md): conservative track identity, provisional song plays, and version-2 evidence.
 - [Step 4 plan](docs/phase-1-step-4-plan.md): original implementation assessment and completed step 4 design.
+- [Step 5 plan](docs/phase-1-step-5-plan.md): original reassessment and implemented track-resolution/song-play design.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -78,11 +90,13 @@ Expect four attempts: two matches, one no-match, and one simulated service error
 |   |-- input-formats.md
 |   |-- replay.md
 |   |-- recognition.md
-|   `-- phase-1-step-4-plan.md
+|   |-- aggregation.md
+|   |-- phase-1-step-4-plan.md
+|   `-- phase-1-step-5-plan.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/
-|   `-- wcs_event_recorder/    # CLI, models, replay, windows, recognition, run evidence
+|   `-- wcs_event_recorder/    # CLI, audio/replay, recognition, identity, grouping, evidence
 |-- tests/
 |   `-- fixtures/             # Synthetic manifests, schedules, and recognition responses
 `-- data/                    # Local-only inputs and generated artifacts

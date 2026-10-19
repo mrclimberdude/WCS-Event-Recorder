@@ -118,3 +118,13 @@ def test_paced_windows_wait_for_delivered_chunk_end(input_files):
     windows = assemble_windows(delivered, source, WindowConfig(4000, 4000))
     observations = [(item.window.start_frame, now[0] - 100) for item in windows]
     assert observations == [(0, 0.75), (4000, 1.5), (8000, 1.5), (12000, 2.0)]
+
+
+def test_nonnegative_duration_conversion_allows_zero_without_changing_positive_contract():
+    assert seconds_to_frames(Decimal("0"), 8000, allow_zero=True) == 0
+    assert seconds_to_frames(Decimal("0.000001"), 8000, allow_zero=True) == 0
+    with pytest.raises(ValueError):
+        seconds_to_frames(Decimal("0"), 8000)
+    for invalid in ("-1", "NaN", "Infinity"):
+        with pytest.raises(ValueError):
+            seconds_to_frames(Decimal(invalid), 8000, allow_zero=True)

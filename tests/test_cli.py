@@ -15,7 +15,7 @@ def run_cli(*args, cwd=None):
     )
 
 
-@pytest.mark.parametrize("args", [("--help",), ("--version",), ("validate-inputs", "--help"), ("replay", "--help"), ("recognize-fixture", "--help")])
+@pytest.mark.parametrize("args", [("--help",), ("--version",), ("validate-inputs", "--help"), ("replay", "--help"), ("recognize-fixture", "--help"), ("aggregate-fixture", "--help")])
 def test_information_commands_work_without_inputs(args, tmp_path):
     result = run_cli(*args, cwd=tmp_path)
     assert result.returncode == 0
@@ -266,3 +266,181 @@ def test_fixture_cli_reports_incomplete_recognition_tail(input_files, recognitio
     assert summary["attempts"] == 2
     assert summary["last_window_end_frame"] == 12000
     assert summary["trailing_frames"] == 4000
+
+
+def aggregation_args(input_files, fixture, output, *extra):
+    args = fixture_args(input_files, fixture, output, "--window-seconds", "0.25", "--hop-seconds", "0.25", *extra)
+    args[0] = "aggregate-fixture"
+    return args
+
+
+def test_aggregation_cli_has_two_tracks_three_occurrences(input_files, aggregation_inputs, tmp_path):
+    output = tmp_path / "aggregate.jsonl"
+    result = run_cli(*aggregation_args(input_files, aggregation_inputs[2], output, "--chunk-seconds", "0.1"))
+    assert result.returncode == 0, result.stderr
+    assert "Aggregation complete: 2 track(s), 3 play(s); resolved: 7, unresolved: 0" in result.stdout
+    assert "Play ~[0, 6000)" in result.stdout
+    assert "Play ~[6000, 10000)" in result.stdout
+    assert "Play ~[10000, 14000)" in result.stdout
+    records = records_at(output)
+    assert all(row["schema_version"] == 2 for row in records)
+    assert records[0]["configuration"]["max_gap_frames"] == 2000
+    assert records[-1]["song_plays"] == 3
+    assert records[-1]["resolution_counts"] == {"resolved": 7, "unresolved": 0}
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("gap,plays", [(None, 1), ("0", 2), ("0.249875", 2), ("0.25", 1)])
+def test_aggregation_cli_gap_budget_controls_unknown_bridge(input_files, aggregation_inputs, tmp_path, gap, plays):
+    fixture = aggregation_inputs[2]
+    data = json.loads(fixture.read_text())
+    for index, row in enumerate(data["entries"]):
+        if index not in (0, 2):
+            row["status"] = "no_match"
+            row.pop("candidate", None)
+    fixture.write_text(json.dumps(data))
+    output = tmp_path / "gap.jsonl"
+    extra = [] if gap is None else ["--max-gap-seconds", gap]
+    result = run_cli(*aggregation_args(input_files, fixture, output, *extra))
+    assert result.returncode == 0, result.stderr
+    assert records_at(output)[-1]["song_plays"] == plays
+    assert records_at(output)[-1]["unique_tracks"] == 1
+
+
+@pytest.mark.parametrize("value", ["-1", "NaN", "Infinity", "bad"])
+def test_aggregation_cli_invalid_gap_budget_creates_no_output(input_files, aggregation_inputs, tmp_path, value):
+    output = tmp_path / "invalid.jsonl"
+    result = run_cli(*aggregation_args(input_files, aggregation_inputs[2], output, "--max-gap-seconds", value))
+    assert result.returncode == 2
+    assert not output.exists()
+
+
+def test_aggregation_cli_unresolved_conflict_remains_distinct_from_no_match(input_files, aggregation_inputs, tmp_path):
+    fixture = aggregation_inputs[2]
+    data = json.loads(fixture.read_text())
+    for index, external_id in enumerate(("a", "conflicting-a", "a")):
+        data["entries"][index]["candidate"]["external_mappings"] = [{"service": "example", "external_id": external_id}]
+    fixture.write_text(json.dumps(data))
+    output = tmp_path / "conflict.jsonl"
+    result = run_cli(*aggregation_args(input_files, fixture, output))
+    assert result.returncode == 0, result.stderr
+    records = records_at(output)
+    assert records[-1]["counts"] == {"match": 7, "no_match": 1, "error": 0}
+    assert records[-1]["resolution_counts"] == {"resolved": 6, "unresolved": 1}
+    unresolved, = [row for row in records if row["type"] == "track_resolution" and row["decision"] == "unresolved"]
+    assert unresolved["reason"] == "service_id_conflict"
+    first_play = next(row for row in records if row["type"] == "song_play_closed")
+    assert first_play["bridged_result_ids"] == [unresolved["result_id"]]
+    assert "bridged_uncertainty" in first_play["uncertainty_flags"]
+
+
+def test_aggregation_cli_overlapping_estimates_preserve_evidence(input_files, aggregation_inputs, tmp_path):
+    fixture = aggregation_inputs[2]
+    data = json.loads(fixture.read_text())
+    rows = []
+    for start, label in ((0, "A"), (4000, "B"), (8000, "A")):
+        rows.append({"start_frame": start, "frame_count": 8000, "status": "match", "candidate": {"title": label, "artist": "Artist"}, "raw_evidence": {"synthetic": True}})
+    data["entries"] = rows
+    fixture.write_text(json.dumps(data))
+    output = tmp_path / "overlap.jsonl"
+    result = run_cli(*aggregation_args(input_files, fixture, output, "--window-seconds", "1", "--hop-seconds", "0.5"))
+    assert result.returncode == 0, result.stderr
+    plays = [row for row in records_at(output) if row["type"] == "song_play_closed"]
+    assert [(p["window"]["start_frame"], p["window"]["frame_count"]) for p in plays] == [(0, 8000), (4000, 8000), (8000, 8000)]
+    assert plays[1]["overlapping_play_ids"] == [plays[0]["play_id"]]
+    assert plays[2]["overlapping_play_ids"] == [plays[1]["play_id"]]
+
+
+def test_aggregation_cli_all_unknown_has_no_tracks_or_plays(input_files, aggregation_inputs, tmp_path):
+    fixture = aggregation_inputs[2]
+    data = json.loads(fixture.read_text())
+    for row in data["entries"]:
+        row["status"] = "no_match"
+        row.pop("candidate", None)
+    fixture.write_text(json.dumps(data))
+    output = tmp_path / "unknown.jsonl"
+    result = run_cli(*aggregation_args(input_files, fixture, output))
+    assert result.returncode == 0, result.stderr
+    footer = records_at(output)[-1]
+    assert footer["unique_tracks"] == footer["song_plays"] == 0
+    assert footer["resolution_counts"] == {"resolved": 0, "unresolved": 0}
+
+
+def test_aggregation_cli_zero_windows_completes_with_warning(input_files, aggregation_inputs, tmp_path):
+    fixture = aggregation_inputs[2]
+    data = json.loads(fixture.read_text())
+    data["entries"] = []
+    fixture.write_text(json.dumps(data))
+    output = tmp_path / "empty.jsonl"
+    result = run_cli(*aggregation_args(input_files, fixture, output, "--window-seconds", "10"))
+    assert result.returncode == 0, result.stderr
+    assert "No complete recognition windows" in result.stderr
+    assert records_at(output)[-1]["song_plays"] == 0
+
+
+def test_aggregation_cli_never_overwrites_output(input_files, aggregation_inputs, tmp_path):
+    output = tmp_path / "existing.jsonl"
+    output.write_text("existing evidence")
+    result = run_cli(*aggregation_args(input_files, aggregation_inputs[2], output))
+    assert result.returncode == 1
+    assert "Aggregation complete" not in result.stdout
+    assert output.read_text() == "existing evidence"
+
+
+def test_aggregation_cli_modes_and_chunks_produce_equivalent_plays(input_files, aggregation_inputs, tmp_path, monkeypatch, capsys):
+    from wcs_event_recorder.cli import main
+    from wcs_event_recorder.replay import replay as real_replay
+    now = [100.0]
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    def controlled(source, **kwargs):
+        return real_replay(source, monotonic=lambda: now[0], sleep=sleep, **kwargs)
+
+    monkeypatch.setattr("wcs_event_recorder.cli.replay", controlled)
+    outputs = [tmp_path / "fast.jsonl", tmp_path / "paced.jsonl"]
+    for output, mode, chunk in zip(outputs, ("accelerated", "paced"), ("0.1", "0.75")):
+        args = aggregation_args(input_files, aggregation_inputs[2], output, "--mode", mode, "--chunk-seconds", chunk)
+        assert main(list(map(str, args))) == 0
+    assert now[0] == 102.0
+
+    def semantic_plays(path):
+        records = records_at(path)
+        raw_ids = [row["result_id"] for row in records if row["type"] == "recognition_result"]
+        tracks = {row["track"]["track_id"]: (row["track"]["title"], row["track"]["artist"]) for row in records if row["type"] == "track_resolution" and row["track"]}
+        return [(tracks[row["track_id"]], row["window"], [raw_ids.index(result_id) for result_id in row["recognition_result_ids"]], row["uncertainty_flags"], row["closure_reason"]) for row in records if row["type"] == "song_play_closed"]
+
+    assert semantic_plays(outputs[0]) == semantic_plays(outputs[1])
+    assert records_at(outputs[0])[0]["run_id"] != records_at(outputs[1])[0]["run_id"]
+
+
+@pytest.mark.parametrize("exception,code,terminal", [(RuntimeError("resolver bug"), 1, "run_failed"), (KeyboardInterrupt(), 130, "run_interrupted")])
+def test_aggregation_cli_failure_does_not_close_open_play_at_eof(input_files, aggregation_inputs, tmp_path, monkeypatch, capsys, exception, code, terminal):
+    from wcs_event_recorder.cli import main
+    from wcs_event_recorder.resolution import TrackResolver
+    original = TrackResolver.resolve
+
+    def fail(self, result):
+        if result.window.start_frame == 10000:
+            raise exception
+        return original(self, result)
+
+    monkeypatch.setattr(TrackResolver, "resolve", fail)
+    output = tmp_path / "failed.jsonl"
+    assert main(list(map(str, aggregation_args(input_files, aggregation_inputs[2], output)))) == code
+    assert "Aggregation complete" not in capsys.readouterr().out
+    records = records_at(output)
+    assert records[-1]["type"] == terminal
+    plays = [row for row in records if row["type"] == "song_play_closed"]
+    assert len(plays) == 1 and plays[0]["closure_reason"] == "track_changed"
+
+
+def test_recognition_v1_output_remains_raw_only(input_files, recognition_inputs, tmp_path):
+    output = tmp_path / "raw-v1.jsonl"
+    result = run_cli(*fixture_args(input_files, recognition_inputs[2], output))
+    assert result.returncode == 0, result.stderr
+    records = records_at(output)
+    assert all(row["schema_version"] == 1 for row in records)
+    assert {row["type"] for row in records} == {"run_started", "recognition_result", "run_completed"}
+    assert "resolution_counts" not in records[-1]

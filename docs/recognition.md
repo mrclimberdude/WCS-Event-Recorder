@@ -1,6 +1,6 @@
 # Recognition windows and offline fixtures
 
-Step 4 connects prerecorded audio replay to deterministic fixture responses and saved run evidence. Fixture recognition returns declared answers for synthetic audio. Actual acoustic recognition, track resolution, song-play aggregation, context attribution, and SQLite persistence are subsequent work.
+Step 4 connects prerecorded audio replay to deterministic fixture responses and saved run evidence. Fixture recognition returns declared answers for synthetic audio. Step 5 now adds [track resolution and song-play aggregation](aggregation.md) through a separate command. Actual acoustic recognition, context attribution, and SQLite persistence remain subsequent work.
 
 ## Run the demonstration
 
@@ -105,10 +105,10 @@ Expected `RecognitionServiceError` exceptions become error outcomes and processi
 
 Exit codes are `0` for completed processing (possibly with recorded service errors), `1` for input/source/output/unexpected failures, `2` for invalid CLI arguments, and `130` for keyboard interruption. Successful completion is printed only after result processing and artifact closure succeed. `--verbose` adds troubleshooting details.
 
-These JSONL files are temporary local diagnostic outputs before database implementation. SQLite will become authoritative in step 6; JSONL can remain an optional export. Recognition outcomes currently have no assigned canonical tracks or song plays.
+These JSONL files are temporary local diagnostic outputs before database implementation. SQLite will become authoritative in step 6; JSONL can remain an optional export. This raw-only command assigns no canonical tracks or plays; use [aggregate-fixture](aggregation.md) for version-2 raw-plus-derived evidence.
 
 ## Verification
 
 The automated suite covers exact nonzero PCM slicing at different chunk sizes, overlapping/adjacent/sparse windows, frame rounding, normal and premature EOF, discontinuities, paced availability, and source cleanup. Fixture tests cover source mismatches, missing/extra/duplicate windows, statuses, confidence, raw evidence, and optional external IDs. Run and CLI tests verify error continuation, fatal/interrupted artifacts, refusal to overwrite, output failures, run identity, equal media evidence across modes, incomplete tails, and zero-window reports.
 
-The latest full run passed 221 tests. Separate manual accelerated and paced demonstrations each produced four attempts with counts 2/1/1. Those checks establish deterministic pipeline behavior, not music recognition accuracy.
+Step 4's full run passed 221 tests; the current suite including aggregation passes 302. Separate manual accelerated and paced recognition demonstrations each produced four attempts with counts 2/1/1. Those checks establish deterministic pipeline behavior, not music recognition accuracy.

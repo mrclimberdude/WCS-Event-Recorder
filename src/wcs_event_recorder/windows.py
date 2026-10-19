@@ -12,14 +12,14 @@ class WindowStreamError(RuntimeError):
     """Delivered chunks do not form the declared contiguous recording."""
 
 
-def seconds_to_frames(seconds: Decimal, sample_rate: int) -> int:
+def seconds_to_frames(seconds: Decimal, sample_rate: int, *, allow_zero: bool = False) -> int:
     """Round once, to the nearest frame (ties to even), without float drift."""
-    if not seconds.is_finite() or seconds <= 0:
-        raise ValueError("duration must be a positive finite number")
+    if not seconds.is_finite() or seconds < 0 or (seconds == 0 and not allow_zero):
+        raise ValueError("duration must be a nonnegative finite number" if allow_zero else "duration must be a positive finite number")
     if type(sample_rate) is not int or sample_rate < 1:
         raise ValueError("sample_rate must be a positive integer")
     frames = round(Fraction(seconds) * sample_rate)
-    if frames < 1:
+    if frames < 1 and not allow_zero:
         raise ValueError("duration must round to at least one sample frame")
     return frames
 
