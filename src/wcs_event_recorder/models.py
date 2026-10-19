@@ -1,5 +1,7 @@
 """Small shared contracts; processing and database behavior come later."""
 
+import json
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -16,6 +18,11 @@ def _integer(value: int, name: str, minimum: int = 1) -> None:
 def _aware(value: datetime, name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must include a UTC offset")
+
+
+def _text(value: str, name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a nonempty string")
 
 
 @dataclass(frozen=True)
@@ -172,6 +179,10 @@ class ExternalTrackMapping:
     service: str
     external_id: str
 
+    def __post_init__(self) -> None:
+        _text(self.service, "service")
+        _text(self.external_id, "external_id")
+
 
 @dataclass(frozen=True)
 class Track:
@@ -188,11 +199,57 @@ class RecognitionCandidate:
     external_mappings: tuple[ExternalTrackMapping, ...] = ()
     confidence: float | None = None  # Normalized only if the provider supplies it.
 
+    def __post_init__(self) -> None:
+        _text(self.title, "title")
+        _text(self.artist, "artist")
+        if self.confidence is not None and (
+            type(self.confidence) not in (int, float)
+            or not 0 <= self.confidence <= 1
+            or not math.isfinite(self.confidence)
+        ):
+            raise ValueError("confidence must be a finite number in [0, 1], or None")
+        if any(not isinstance(mapping, ExternalTrackMapping) for mapping in self.external_mappings):
+            raise ValueError("external_mappings must contain ExternalTrackMapping values")
+
 
 class RecognitionStatus(StrEnum):
     MATCH = "match"
     NO_MATCH = "no_match"
     ERROR = "error"
+
+
+def _recognition_fields(provider, status, raw_evidence, candidate, error) -> None:
+    _text(provider, "provider")
+    if not isinstance(status, RecognitionStatus):
+        raise ValueError("status must be a RecognitionStatus value")
+    if (status == RecognitionStatus.MATCH) != (candidate is not None):
+        raise ValueError("only matched results must contain a candidate")
+    if candidate is not None and not isinstance(candidate, RecognitionCandidate):
+        raise ValueError("candidate must be a RecognitionCandidate")
+    if status == RecognitionStatus.ERROR:
+        _text(error, "error description")
+    elif error is not None:
+        raise ValueError("only error results may include an error description")
+    if not isinstance(raw_evidence, Mapping) or any(not isinstance(key, str) for key in raw_evidence):
+        raise ValueError("raw_evidence must be a JSON-serializable object with string keys")
+    try:
+        json.dumps(dict(raw_evidence), allow_nan=False)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("raw_evidence must be a JSON-serializable object") from exc
+
+
+@dataclass(frozen=True)
+class RecognitionOutcome:
+    """Provider answer before orchestration assigns run and result identity."""
+
+    provider: str
+    status: RecognitionStatus
+    raw_evidence: Mapping[str, object] = field(repr=False)
+    candidate: RecognitionCandidate | None = None
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        _recognition_fields(self.provider, self.status, self.raw_evidence, self.candidate, self.error)
 
 
 @dataclass(frozen=True)
@@ -207,10 +264,9 @@ class RecognitionResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if (self.status == RecognitionStatus.MATCH) != (self.candidate is not None):
-            raise ValueError("only matched results must contain a candidate")
-        if self.status == RecognitionStatus.ERROR and not self.error:
-            raise ValueError("error results must include an error description")
+        _text(self.result_id, "result_id")
+        _text(self.run_id, "run_id")
+        _recognition_fields(self.provider, self.status, self.raw_evidence, self.candidate, self.error)
 
 
 @dataclass(frozen=True)

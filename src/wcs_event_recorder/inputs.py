@@ -68,7 +68,8 @@ def _rows(data: dict, key: str) -> list[dict]:
     return [_object(row, f"{key}[{index}]") for index, row in enumerate(value)]
 
 
-def _load(path: Path, label: str) -> dict:
+def load_json(path: Path, label: str) -> dict:
+    """Load a version-1 JSON document, rejecting duplicate keys and nonfinite values."""
     try:
         data = _object(
             json.loads(
@@ -134,7 +135,7 @@ def _ids(items: tuple, attribute: str, label: str) -> set[str]:
 
 
 def load_schedule(path: Path) -> Schedule:
-    data = _load(Path(path), "schedule")
+    data = load_json(Path(path), "schedule")
     event_data = _object(data.get("event"), "schedule.event")
     event = Event(
         _text(event_data, "event_id", "event"),
@@ -212,7 +213,7 @@ def inspect_wav(path: Path) -> tuple[AudioFormat, int]:
 
 def load_recording(path: Path) -> RecordingSource:
     manifest_path = Path(path).resolve()
-    data = _load(manifest_path, "manifest")
+    data = load_json(manifest_path, "manifest")
     source_id = _text(data, "source_id", "manifest")
     event_id = _text(data, "event_id", "manifest")
     room_id = _text(data, "room_id", "manifest")

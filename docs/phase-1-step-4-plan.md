@@ -1,6 +1,6 @@
 # Phase 1 reassessment and step 4 implementation plan
 
-Status: proposed implementation plan. Step 4 is not implemented by this document.
+Status: implemented and verified. This document preserves the original reassessment and design; the [recognition guide](recognition.md) documents the actual command and artifact schema. The full test suite passes 221 tests, and accelerated/paced manual demos both produce the expected four outcomes. The baseline assessment below describes the repository before step 4.
 
 ## Assessment of the current implementation
 

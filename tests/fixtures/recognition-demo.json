@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "source": {
+    "source_id": "synthetic-main-001",
+    "sample_rate": 8000,
+    "channels": 1,
+    "sample_width": 2,
+    "frame_count": 16000
+  },
+  "entries": [
+    {
+      "start_frame": 0,
+      "frame_count": 4000,
+      "status": "match",
+      "candidate": {"title": "Synthetic Song A", "artist": "Example Artist"},
+      "raw_evidence": {"synthetic": true, "response": {"title": "Synthetic Song A", "artist": "Example Artist"}}
+    },
+    {
+      "start_frame": 4000,
+      "frame_count": 4000,
+      "status": "no_match",
+      "raw_evidence": {"synthetic": true, "response": null}
+    },
+    {
+      "start_frame": 8000,
+      "frame_count": 4000,
+      "status": "error",
+      "error": "Simulated recognition service timeout",
+      "raw_evidence": {"synthetic": true, "error_code": "simulated_timeout"}
+    },
+    {
+      "start_frame": 12000,
+      "frame_count": 4000,
+      "status": "match",
+      "candidate": {"title": "Synthetic Song B", "artist": "Example Artist"},
+      "raw_evidence": {"synthetic": true, "response": {"title": "Synthetic Song B", "artist": "Example Artist"}}
+    }
+  ]
+}

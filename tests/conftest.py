@@ -18,3 +18,12 @@ def input_files(tmp_path):
         audio.setframerate(8000)
         audio.writeframes(b"\x00" * 2 * 8000 * 2)
     return tmp_path / "manifest.json", tmp_path / "schedule.json"
+
+
+@pytest.fixture
+def recognition_inputs(input_files, tmp_path):
+    from wcs_event_recorder.inputs import load_recording
+    from wcs_event_recorder.windows import WindowConfig
+    path = tmp_path / "recognition.json"
+    shutil.copyfile(FIXTURES / "recognition-demo.json", path)
+    return load_recording(input_files[0]), WindowConfig(4000, 4000), path

@@ -4,7 +4,7 @@
 
 This project tracks music and event context at West Coast Swing events. Read `docs/project-overview.md` and `docs/implementation-plan.md` before substantial changes.
 
-The repository implements the Phase 1 package/CLI, input contracts/validation, and file reading/replay. Read `docs/input-formats.md` and `docs/replay.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
+The repository implements Phase 1 steps 1–4: package/CLI, inputs/validation, file replay, recognition windows, fixture recognition, and JSONL run evidence. Read `docs/input-formats.md`, `docs/replay.md`, and `docs/recognition.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
 
 ## Architectural rules
 
@@ -20,6 +20,8 @@ The repository implements the Phase 1 package/CLI, input contracts/validation, a
 - Allow unknown or ambiguous results. Do not invent provider confidence or present inferred heat, classification, timing, or DJ attribution as certain.
 - The database is authoritative. Google Sheets, public web views, and playlists are optional outputs; their failures must not prevent core processing.
 - Put provider-specific behavior behind narrow adapters. Do not build acoustic fingerprinting from scratch for the MVP.
+- Fixture recognition requires an exact declared response for every full configured window. Missing fixture data is a setup error. Keep expected service failures distinct from no-match and unexpected programming failures.
+- Preserve streaming run evidence in ignored local JSONL artifacts until SQLite becomes authoritative. Refuse output overwrites and never report an incomplete/interrupted run as completed.
 
 ## Audio and publication constraints
 

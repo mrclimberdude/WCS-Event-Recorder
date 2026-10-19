@@ -26,7 +26,7 @@ Actual chunk lines also include event-local start/end timestamps and PCM byte co
 
 `--chunk-seconds` defaults to `1`. A positive finite decimal duration is rounded to the nearest sample frame, with ties rounded to even. Durations rounding to zero frames are rejected. The final chunk contains only the remaining frames; it is not padded with silence or dropped.
 
-Only the recording manifest is required for replay. Use `validate-inputs` separately to validate a schedule. Recognition-window size and cadence will be independent of source chunk size when recognition is implemented.
+Only the recording manifest is required for replay. Use `validate-inputs` separately to validate a schedule. [Recognition windows](recognition.md) now use a duration and hop independent of source chunk size.
 
 ## Source and scheduling responsibilities
 
