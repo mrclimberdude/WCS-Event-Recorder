@@ -15,7 +15,7 @@ def run_cli(*args, cwd=None):
     )
 
 
-@pytest.mark.parametrize("args", [("--help",), ("--version",), ("validate-inputs", "--help")])
+@pytest.mark.parametrize("args", [("--help",), ("--version",), ("validate-inputs", "--help"), ("replay", "--help")])
 def test_information_commands_work_without_inputs(args, tmp_path):
     result = run_cli(*args, cwd=tmp_path)
     assert result.returncode == 0
@@ -83,3 +83,56 @@ def test_verbose_before_subcommand_is_preserved(input_files):
     result = run_cli("--verbose", "validate-inputs", "--manifest", input_files[0], "--schedule", input_files[1])
     assert result.returncode == 0
     assert "DEBUG:" in result.stderr
+
+
+def test_replay_cli_prints_exact_coverage_with_partial_final_chunk(input_files, tmp_path):
+    manifest, _ = input_files
+    original = (tmp_path / "sample.wav").read_bytes()
+    result = run_cli("replay", "--manifest", manifest, "--chunk-seconds", "0.75", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "mode: accelerated; frames per chunk: 6000" in result.stdout
+    assert "Chunk 1: frames [0, 6000)" in result.stdout
+    assert "Chunk 2: frames [6000, 12000)" in result.stdout
+    assert "Chunk 3: frames [12000, 16000)" in result.stdout
+    assert "2027-01-02T00:00:01-05:00" in result.stdout
+    assert "Replay complete: 3 chunk(s), 16000 frames, 2.000000 seconds" in result.stdout
+    assert result.stderr == ""
+    assert (tmp_path / "sample.wav").read_bytes() == original
+
+
+@pytest.mark.parametrize("seconds", ["0", "-1", "NaN", "Infinity", "nonsense", "0.000001"])
+def test_replay_cli_rejects_invalid_chunk_durations(input_files, seconds):
+    result = run_cli("replay", "--manifest", input_files[0], "--chunk-seconds", seconds)
+    assert result.returncode == 2
+    assert "chunk" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_replay_cli_missing_audio_reports_error(input_files):
+    manifest, _ = input_files
+    manifest.with_name("sample.wav").unlink()
+    result = run_cli("replay", "--manifest", manifest)
+    assert result.returncode == 1
+    assert "cannot read PCM WAV" in result.stderr
+    assert "Replay complete" not in result.stdout
+
+
+def test_replay_cli_rounds_duration_to_nearest_sample_frame(input_files):
+    result = run_cli("replay", "--manifest", input_files[0], "--chunk-seconds", "0.7501")
+    assert result.returncode == 0
+    assert "frames per chunk: 6001" in result.stdout
+    assert "16000 frames" in result.stdout
+
+
+def test_replay_cli_handles_interruption_without_success_summary(input_files, monkeypatch, capsys):
+    from wcs_event_recorder.cli import main
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+        yield  # Make this a generator, interrupted when consumed.
+
+    monkeypatch.setattr("wcs_event_recorder.cli.replay", interrupted)
+    assert main(["replay", "--manifest", str(input_files[0]), "--mode", "paced"]) == 130
+    output = capsys.readouterr()
+    assert "Interrupted" in output.err
+    assert "Replay complete" not in output.out

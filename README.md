@@ -6,7 +6,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 steps 1 and 2 are implemented: an installable Python package, command-line interface, shared data contracts, and read-only recording/schedule validation with offline tests. File replay, recognition, song-play aggregation, and database persistence are the next chunks.
+Phase 1 steps 1–3 are implemented: an installable Python package, command-line interface, shared data contracts, input validation, and file replay in accelerated or paced mode. Recognition, song-play aggregation, database persistence, and schedule attribution to plays remain. The real event evaluation sample still needs to be selected.
 
 ## Setup and verification
 
@@ -33,11 +33,24 @@ Generate a two-second silent WAV plus synthetic manifest and schedule under igno
 
 The summary reports a two-second, 8000 Hz, mono, 16-bit recording that crosses midnight and has no schedule warnings. This demonstrates validation; it does not recognize songs. To use a private event sample, prepare inputs following the [input-format guide](docs/input-formats.md), then pass their paths to the same command. Add `--verbose` for troubleshooting.
 
+## Try file replay
+
+Replay streams timestamped PCM chunks to the application. These commands print chunk metadata using the existing demo:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe replay --manifest data/samples/demo/manifest.json --chunk-seconds 0.75
+.\.venv\Scripts\wcs-recorder.exe replay --manifest data/samples/demo/manifest.json --chunk-seconds 0.75 --mode paced
+```
+
+Both produce three contiguous chunks covering all 16000 frames, including a shorter final chunk. Accelerated mode runs immediately; paced mode releases chunks at approximately 0.75, 1.5, and 2 seconds. Their PCM data and media timestamps are identical. Only a manifest is needed for replay; schedule validation remains available as a separate command. See the [replay guide](docs/replay.md) for timing behavior and error handling.
+
 ## Start here
 
 - [Project overview](docs/project-overview.md): goals, architecture, data model, and constraints.
 - [Implementation plan](docs/implementation-plan.md): proposed Python stack, phases, and Phase 1 acceptance criteria.
 - [Input formats](docs/input-formats.md): manifest and schedule schemas, time rules, and validation behavior.
+- [File replay](docs/replay.md): bounded WAV reading, replay modes, and manual verification.
+- [Step 4 plan](docs/phase-1-step-4-plan.md): implementation assessment and the proposed recognition-window/fixture work.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -51,11 +64,12 @@ The summary reports a two-second, 8000 Hz, mono, 16-bit recording that crosses m
 |-- docs/
 |   |-- project-overview.md
 |   |-- implementation-plan.md
-|   `-- input-formats.md
+|   |-- input-formats.md
+|   `-- replay.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/
-|   `-- wcs_event_recorder/    # CLI, models, and input validation
+|   `-- wcs_event_recorder/    # CLI, models, input validation, audio source, replay
 |-- tests/
 |   `-- fixtures/             # Synthetic manifests, schedules, and coverage cases
 `-- data/                    # Local-only inputs and generated artifacts

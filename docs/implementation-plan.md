@@ -1,6 +1,6 @@
 # Proposed implementation plan
 
-This is a planning baseline for incremental development. The package/CLI and input-contract/validation chunks of Phase 1 are implemented and tested. File replay, recognition, aggregation, schedule attribution to song plays, and persistence remain. Later phases describe intended outcomes, not implemented features.
+This is a planning baseline for incremental development. The package/CLI, input-contract/validation, and file-replay chunks of Phase 1 are implemented and tested. Recognition, aggregation, schedule attribution to song plays, and persistence remain. Later phases describe intended outcomes, not implemented features.
 
 ## Initial Python stack
 
@@ -24,15 +24,20 @@ The design choices above are project proposals. The linked official documentatio
 
 Inputs are a private sample containing at least two known songs, a supplied event start timestamp and timezone, a small JSON schedule with event/room/session/DJ information, and either fixture recognition responses or an explicitly enabled provider adapter. Fixtures validate the pipeline; a separate provider evaluation measures actual recognition.
 
-Implement the narrow path in small steps:
+Implement the narrow path in these reviewable chunks:
 
-1. Define `AudioSource` / `AudioChunk` contracts and file replay with both paced and accelerated modes. Preserve media timestamps in either mode.
-2. Implement a fixture recognizer and raw-result persistence; add a real-provider adapter after confirming its request format and credential handling.
-3. Aggregate detections into canonical `Track` and `SongPlay` records, retaining approximate boundaries and raw evidence.
-4. Apply scheduled context using room and time intervals, with initial social/competition/unknown classification and explicit schedule provenance.
-5. Persist the run, source references, detections, plays, and context in SQLite; provide a CLI report for inspection.
+1. **Project setup — complete.** Installable package, CLI entry point, logging, and pytest.
+2. **Inputs and contracts — implemented; real sample pending.** Manifest/schedule validation, WAV inspection, domain models, synthetic fixtures, and source timestamp calculations. Select a private 3–5 minute event recording with at least two known songs for evaluation.
+3. **File reading and replay — complete.** `FileAudioSource` streams bounded PCM chunks, including the final partial chunk. Accelerated and paced modes preserve identical audio and media times; paced chunks become available at their end offsets using monotonic deadlines. See [file replay](replay.md).
+4. **Recognition windows and fixtures — next.** Define window duration and cadence independently of chunk size, implement a recognizer interface and deterministic fixture responses, and preserve match/no-match/error evidence in a streaming local JSONL diagnostic artifact. Keep full-window/EOF rules and stream discontinuities explicit. See the [detailed step 4 plan and reassessment](phase-1-step-4-plan.md). AudD remains a candidate; verify adapter encoding and duration requirements before real integration.
+5. **Track resolution and aggregation.** Resolve candidates conservatively into canonical `Track` identities and aggregate `SongPlay` occurrences, with explicit rules for unknown gaps, boundaries, repeated songs, and end-of-file finalization.
+6. **SQLite persistence.** Save source/run metadata, configuration, schedule snapshots, raw results, tracks, and plays. Preserve previous runs and make evidence inspectable before developing detailed context attribution. SQLite becomes authoritative; the step 4 JSONL diagnostic writer can remain an optional export.
+7. **Schedule attribution.** Record time-bounded context and DJ attributions with matched schedule IDs, provenance, and uncertainty. Preserve one song play across context changes; gaps and overlaps remain explicit.
+8. **End-to-end demonstration and provider evaluation.** Connect the fixture pipeline behind one CLI command and print an ordered play summary. Then add one real-provider adapter and evaluate the private sample, measuring recognition and timing quality separately from deterministic fixture correctness.
 
 No web UI, Sheets, playlists, hardware, automatic schedule extraction, speech analysis, or heat inference is required for this phase. Retain the input audio for later reprocessing. Each run should be identifiable so rerunning a sample does not create indistinguishable duplicate results.
+
+The current replay pipeline is synchronous. Independent live capture, background workers/queues, resumability, and retry scheduling remain later work; paced replay alone does not establish live capture resilience. The [step 4 reassessment](phase-1-step-4-plan.md) records the implementation evidence, retained decisions, and narrow changes to this sequence.
 
 ### Acceptance criteria
 

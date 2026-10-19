@@ -4,7 +4,7 @@
 
 This project tracks music and event context at West Coast Swing events. Read `docs/project-overview.md` and `docs/implementation-plan.md` before substantial changes.
 
-The repository implements the Phase 1 package/CLI and input contracts/validation. Read `docs/input-formats.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
+The repository implements the Phase 1 package/CLI, input contracts/validation, and file reading/replay. Read `docs/input-formats.md` and `docs/replay.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
 
 ## Architectural rules
 
@@ -15,6 +15,7 @@ The repository implements the Phase 1 package/CLI and input contracts/validation
 - Store raw recognition results and inference evidence, including failures, alongside derived conclusions. Link detections and plays to recording chunks, timestamps, and offsets.
 - Preserve provisional live predictions independently from post-event results and human corrections. Reprocessing must not silently erase the live evidence.
 - Use timezone-aware timestamps and retain the event's timezone. Audio offsets must remain reproducible regardless of replay speed or machine clock.
+- Keep source reading independent of replay pacing. Paced delivery uses monotonic deadlines at chunk ends; processing delays must not accumulate into repeated extra waits. Keep recognition windows independent of source chunk sizes.
 - Treat schedules as expected context. Record attribution sources and confidence; a scheduled DJ or competition is not proof of actual activity.
 - Allow unknown or ambiguous results. Do not invent provider confidence or present inferred heat, classification, timing, or DJ attribution as certain.
 - The database is authoritative. Google Sheets, public web views, and playlists are optional outputs; their failures must not prevent core processing.

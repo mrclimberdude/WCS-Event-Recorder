@@ -93,9 +93,9 @@ Summaries go to stdout. Warnings, errors, and optional `--verbose` troubleshooti
 
 ## Shared model boundaries
 
-`models.py` defines `AudioSource`, `RecordingSource`, `AudioChunk`, source windows, schedule entities, `Track`, recognition candidates/results, `SongPlay`, inference, and analysis-run metadata. These are in-memory contracts, not a database schema or a processing implementation. JSON loaders validate external input before constructing schedule entities; audio models additionally guard frame ranges and payload lengths.
+`models.py` defines `AudioSource`, `RecordingSource`, `AudioChunk`, source windows, schedule entities, `Track`, recognition candidates/results, `SongPlay`, inference, and analysis-run metadata. These are in-memory contracts rather than a database schema. JSON loaders validate external input before constructing schedule entities; audio models additionally guard frame ranges and payload lengths. `audio.FileAudioSource` and the [replay scheduler](replay.md) now implement the file-input stream.
 
-Recognition candidates have no canonical track ID until later resolution. Results retain match/no-match/error status and raw evidence. A song play references its canonical track, source window, run, and supporting recognition results; live and final inference are separate optional values. Missing confidence remains unknown. File-source replay, provider adapters, aggregation, persistence, and inference will be implemented in subsequent chunks.
+Recognition candidates have no canonical track ID until later resolution. Results retain match/no-match/error status and raw evidence. A song play references its canonical track, source window, run, and supporting recognition results; live and final inference are separate optional values. Missing confidence remains unknown. Provider adapters, aggregation, persistence, and inference will be implemented in subsequent chunks.
 
 ## Private evaluation sample
 
