@@ -2,10 +2,19 @@
 
 import unicodedata
 from dataclasses import dataclass, replace
-from typing import Iterable
+from typing import Iterable, Protocol
 from uuid import uuid4
 
 from .models import RecognitionResult, RecognitionStatus, ResolutionDecision, Track, TrackResolution
+
+NORMALIZATION_VERSION = "conservative_metadata_v1"
+
+
+class TrackCatalog(Protocol):
+    def get(self, track_id: str) -> Track: ...
+    def find_metadata(self, key: tuple[str, str]) -> set[str]: ...
+    def find_mapping(self, service: str, external_id: str) -> set[str]: ...
+    def save(self, track: Track) -> None: ...
 
 
 def metadata_key(title: str, artist: str) -> tuple[str, str]:
@@ -57,7 +66,7 @@ class InMemoryTrackCatalog:
 
 
 class TrackResolver:
-    def __init__(self, catalog: InMemoryTrackCatalog, policy: ResolutionPolicy = ResolutionPolicy()):
+    def __init__(self, catalog: TrackCatalog, policy: ResolutionPolicy = ResolutionPolicy()):
         self.catalog = catalog
         self.policy = policy
 

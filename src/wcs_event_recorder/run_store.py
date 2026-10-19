@@ -1,0 +1,285 @@
+"""Run-bound evidence and atomic writes to the authoritative SQLite database."""
+
+import hashlib
+import json
+from dataclasses import asdict
+from datetime import datetime
+from importlib.metadata import version
+from pathlib import Path
+from uuid import uuid4
+
+from .aggregation import AggregationPolicy
+from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
+from .evidence import validate_play_evidence
+from .inputs import parse_schedule, validate_schedule
+from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
+from .resolution import ResolutionPolicy
+from .storage import Database, SQLiteTrackCatalog, StorageError
+from .windows import WindowConfig
+
+
+class RunStore:
+    def __init__(self, db: Database, run_id: str):
+        self.db, self.run_id = db, run_id
+        row = self.row()
+        self.run = AnalysisRun(run_id, row["source_id"], datetime.fromisoformat(row["started_at"]), json.loads(row["configuration_json"]))
+        self.source = source_from_row(db.execute("SELECT * FROM recording_sources WHERE source_id = ?", (row["source_id"],)).fetchone())
+        config = self.run.configuration
+        self.config = WindowConfig(config["window_frames"], config["hop_frames"])
+        self.policy = AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
+        self.resolution_policy = ResolutionPolicy(config["resolution_policy"])
+
+    def row(self):
+        row = self.db.execute("SELECT * FROM analysis_runs WHERE run_id = ?", (self.run_id,)).fetchone()
+        if row is None:
+            raise StorageError(f"unknown analysis run '{self.run_id}'")
+        return row
+
+    @classmethod
+    def create(cls, db, run, source, *, schedule_document=None, schedule_path=None):
+        if run.source_id != source.source_id:
+            raise ValueError("run and recording must reference the same source")
+        config = run.configuration
+        WindowConfig(config["window_frames"], config["hop_frames"])
+        AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
+        ResolutionPolicy(config["resolution_policy"])
+        warnings = []
+        if schedule_document is not None:
+            schedule = parse_schedule(schedule_document)
+            report = validate_schedule(source, schedule)
+            warnings = [{**asdict(item), "start_time": item.start_time.isoformat(), "end_time": item.end_time.isoformat()} for item in report.warnings]
+            if schedule_path is None:
+                raise ValueError("schedule snapshot requires its input path")
+        with db.transaction():
+            old = db.execute("SELECT * FROM recording_sources WHERE source_id = ?", (source.source_id,)).fetchone()
+            if old is not None:
+                if source_document(source_from_row(old)) != source_document(source):
+                    raise ValueError("source ID already exists with different recording metadata")
+            else:
+                doc = source_document(source)
+                db.execute("INSERT INTO recording_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    source.source_id, source.event_id, source.room_id, doc["audio_path"], doc["start_time"], source.timezone,
+                    source.audio_format.sample_rate, source.audio_format.channels, source.audio_format.sample_width, source.frame_count,
+                ))
+            snapshot_id = None
+            if schedule_document is not None:
+                text = json_text(schedule_document, sort_keys=True)
+                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                path = str(Path(schedule_path).resolve())
+                snapshot = db.execute("SELECT snapshot_id FROM schedule_snapshots WHERE normalized_sha256 = ? AND input_path = ?", (digest, path)).fetchone()
+                snapshot_id = snapshot[0] if snapshot else str(uuid4())
+                if snapshot is None:
+                    db.execute("INSERT INTO schedule_snapshots VALUES (?, ?, ?, ?, ?)", (snapshot_id, digest, path, schedule.source, text))
+            db.execute("""INSERT INTO analysis_runs
+                (run_id, source_id, started_at, status, configuration_json, application_version, schedule_snapshot_id, warnings_json)
+                VALUES (?, ?, ?, 'running', ?, ?, ?, ?)""", (
+                run.run_id, source.source_id, run.started_at.isoformat(), json_text(dict(config)),
+                version("wcs-event-recorder"), snapshot_id, json_text(warnings),
+            ))
+        return cls(db, run.run_id)
+
+    def _open(self):
+        self.db.require_transaction()
+        row = self.row()
+        if row["status"] != "running":
+            raise ValueError("cannot change a terminal analysis run")
+        return row
+
+    def _next_event(self):
+        row = self._open()
+        self.db.execute("UPDATE analysis_runs SET next_event_index = next_event_index + 1 WHERE run_id = ?", (self.run_id,))
+        return row["next_event_index"]
+
+    def result(self, result):
+        with self.db.transaction():
+            self._open()
+            count = self.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (self.run_id,)).fetchone()[0]
+            if (
+                result.run_id != self.run_id or result.window.source_id != self.source.source_id
+                or result.window.start_frame != count * self.config.hop_frames
+                or result.window.frame_count != self.config.window_frames
+                or result.window.end_frame > self.source.frame_count
+            ):
+                raise ValueError("result has invalid run/source or configured window sequence")
+            self.db.execute("""INSERT INTO recognition_results VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                result.result_id, self.run_id, self.source.source_id, count, result.window.start_frame, result.window.frame_count,
+                utc_now(), result.provider, result.status.value, json_text(asdict(result.candidate)) if result.candidate else None,
+                json_text(dict(result.raw_evidence)), result.error, self._next_event(),
+            ))
+
+    def resolve(self, result, resolver):
+        """Catalog mutation and its historical decision either both commit or neither does."""
+        if not isinstance(resolver.catalog, SQLiteTrackCatalog) or resolver.catalog.db is not self.db:
+            raise ValueError("persistent resolution requires this database's catalog")
+        with self.db.transaction():
+            self._open()
+            raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ? AND run_id = ?", (result.result_id, self.run_id)).fetchone()
+            if raw is None or result.status != RecognitionStatus.MATCH:
+                raise ValueError("resolution requires its unchanged committed matched result")
+            if json.loads(json_text(result_document(result_from_row(raw)))) != json.loads(json_text(result_document(result))):
+                raise ValueError("resolution requires its unchanged committed matched result")
+            if resolver.policy != self.resolution_policy:
+                raise ValueError("mismatched resolution policy")
+            resolver.catalog.first_result_id = result.result_id
+            try:
+                resolution = resolver.resolve(result)
+                if not isinstance(resolution, TrackResolution) or resolution.result_id != result.result_id:
+                    raise ValueError("resolver must return this result's TrackResolution")
+                self._save_resolution(resolution)
+            finally:
+                resolver.catalog.first_result_id = None
+        return resolution
+
+    def _save_resolution(self, resolution):
+        self.db.require_transaction()
+        raw = self.db.execute("SELECT status FROM recognition_results WHERE result_id = ? AND run_id = ?", (resolution.result_id, self.run_id)).fetchone()
+        if raw is None or raw[0] != "match" or resolution.policy_version != self.resolution_policy.version:
+            raise ValueError("resolution must reference a match with the run's policy")
+        if resolution.track is not None and SQLiteTrackCatalog(self.db).get(resolution.track.track_id) != resolution.track:
+            raise ValueError("resolution must snapshot the current resolved Track")
+        self.db.execute("INSERT INTO track_resolutions VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+            resolution.result_id, self.run_id, resolution.decision.value, resolution.policy_version, resolution.reason,
+            resolution.track.track_id if resolution.track else None,
+            json_text(asdict(resolution.track)) if resolution.track else None, self._next_event(),
+        ))
+        for track_id in resolution.conflicting_track_ids:
+            self.db.execute("INSERT INTO resolution_conflicts VALUES (?, ?)", (resolution.result_id, track_id))
+
+    def play(self, play):
+        with self.db.transaction():
+            self._open()
+            if play.run_id != self.run_id or play.window.source_id != self.source.source_id or play.aggregation_policy != self.policy.version:
+                raise ValueError("play must belong to the run/source and policy")
+            evidence, resolutions, supported, previous = {}, {}, set(), {}
+            refs = (*play.recognition_result_ids, *play.bridged_result_ids, *(() if play.closing_result_id is None else (play.closing_result_id,)))
+            for result_id in dict.fromkeys(refs):
+                row = self.db.execute("""SELECT r.*, t.track_id, t.decision FROM recognition_results r
+                    LEFT JOIN track_resolutions t ON t.result_id = r.result_id
+                    WHERE r.run_id = ? AND r.result_id = ?""", (self.run_id, result_id)).fetchone()
+                if row:
+                    evidence[result_id] = (AudioWindow(row["source_id"], row["start_frame"], row["frame_count"]), RecognitionStatus(row["status"]))
+                    if row["decision"] is not None:
+                        resolutions[result_id] = row["track_id"]
+                if self.db.execute("SELECT 1 FROM play_evidence WHERE result_id = ? AND role = 'support'", (result_id,)).fetchone():
+                    supported.add(result_id)
+            for play_id in play.overlapping_play_ids:
+                row = self.db.execute("SELECT * FROM song_plays WHERE run_id = ? AND play_id = ?", (self.run_id, play_id)).fetchone()
+                if row:
+                    previous[play_id] = AudioWindow(row["source_id"], row["start_frame"], row["frame_count"])
+            validate_play_evidence(play, self.source, evidence, resolutions, previous, supported)
+            self.db.execute("INSERT INTO song_plays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                play.play_id, self.run_id, self.source.source_id, play.track_id, play.window.start_frame, play.window.frame_count,
+                play.boundary_method, play.aggregation_policy, play.analysis_stage, play.closure_reason,
+                json_text(play.uncertainty_flags), json_text(asdict(play.live_inference)) if play.live_inference else None,
+                json_text(asdict(play.final_inference)) if play.final_inference else None, int(play.reviewed), self._next_event(),
+            ))
+            for role, result_ids in (("support", play.recognition_result_ids), ("bridged", play.bridged_result_ids), ("closing", (() if play.closing_result_id is None else (play.closing_result_id,)))):
+                for position, result_id in enumerate(result_ids):
+                    self.db.execute("INSERT INTO play_evidence VALUES (?, ?, ?, ?, ?)", (play.play_id, result_id, self.run_id, role, position))
+            for position, previous_id in enumerate(play.overlapping_play_ids):
+                self.db.execute("INSERT INTO play_overlaps VALUES (?, ?, ?, ?)", (play.play_id, previous_id, self.run_id, position))
+
+    def summary(self):
+        counts = {status.value: 0 for status in RecognitionStatus}
+        for row in self.db.execute("SELECT status, count(*) FROM recognition_results WHERE run_id = ? GROUP BY status", (self.run_id,)):
+            counts[row[0]] = row[1]
+        resolutions = {item.value: 0 for item in ResolutionDecision}
+        for row in self.db.execute("SELECT decision, count(*) FROM track_resolutions WHERE run_id = ? GROUP BY decision", (self.run_id,)):
+            resolutions[row[0]] = row[1]
+        return {
+            "counts": counts, "resolution_counts": resolutions,
+            "unique_tracks": self.db.execute("SELECT count(DISTINCT track_id) FROM track_resolutions WHERE run_id = ?", (self.run_id,)).fetchone()[0],
+            "song_plays": self.db.execute("SELECT count(*) FROM song_plays WHERE run_id = ?", (self.run_id,)).fetchone()[0],
+            "uncertain_plays": self.db.execute("SELECT count(*) FROM song_plays WHERE run_id = ? AND uncertainty_flags_json != '[]'", (self.run_id,)).fetchone()[0],
+        }
+
+    def complete(self):
+        with self.db.transaction():
+            self._open()
+            summary = self.summary()
+            expected = self.config.window_count(self.source.frame_count)
+            if sum(summary["counts"].values()) != expected:
+                raise ValueError(f"cannot complete run: expected {expected} results")
+            if sum(summary["resolution_counts"].values()) != summary["counts"]["match"]:
+                raise ValueError("every match must have an explicit resolution")
+            missing = self.db.execute("""SELECT 1 FROM track_resolutions t
+                WHERE t.run_id = ? AND t.decision = 'resolved' AND NOT EXISTS
+                (SELECT 1 FROM play_evidence e WHERE e.result_id = t.result_id AND e.role = 'support') LIMIT 1""", (self.run_id,)).fetchone()
+            if missing:
+                raise ValueError("all resolved detections must belong to closed plays before completion")
+            last = self.config.last_end_frame(self.source.frame_count)
+            summary.update(source_frame_count=self.source.frame_count, attempts=expected, last_window_end_frame=last, trailing_frames=self.source.frame_count - last)
+            self._terminal("completed", summary)
+
+    def stop(self, status, error):
+        if status not in {"failed", "interrupted"}:
+            raise ValueError("invalid failure status")
+        with self.db.transaction():
+            self._open()
+            self._terminal(status, self.summary(), error)
+
+    def _terminal(self, status, summary, error=None):
+        self.db.execute("UPDATE analysis_runs SET status = ?, ended_at = ?, terminal_error = ?, terminal_summary_json = ? WHERE run_id = ?", (
+            status, utc_now(), error, json_text(summary), self.run_id,
+        ))
+
+    def results(self):
+        return [result_from_row(row) for row in self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? ORDER BY attempt_index", (self.run_id,))]
+
+    def resolution(self, result_id):
+        row = self.db.execute("SELECT * FROM track_resolutions WHERE result_id = ? AND run_id = ?", (result_id, self.run_id)).fetchone()
+        if row is None:
+            raise KeyError(result_id)
+        conflicts = tuple(item[0] for item in self.db.execute("SELECT track_id FROM resolution_conflicts WHERE result_id = ? ORDER BY track_id", (result_id,)))
+        return TrackResolution(result_id, ResolutionDecision(row["decision"]), row["policy_version"], row["reason"], track_from_document(json.loads(row["track_snapshot_json"])) if row["track_snapshot_json"] else None, conflicts)
+
+    def _play_from_row(self, row):
+        links = {"support": [], "bridged": [], "closing": []}
+        for item in self.db.execute("SELECT role, result_id FROM play_evidence WHERE play_id = ? ORDER BY position", (row["play_id"],)):
+            links[item["role"]].append(item["result_id"])
+        overlaps = tuple(item[0] for item in self.db.execute("SELECT previous_play_id FROM play_overlaps WHERE play_id = ? ORDER BY position", (row["play_id"],)))
+        return SongPlay(
+            row["play_id"], row["run_id"], row["track_id"], AudioWindow(row["source_id"], row["start_frame"], row["frame_count"]),
+            tuple(links["support"]), inference_from_json(row["live_inference_json"]), inference_from_json(row["final_inference_json"]),
+            bool(row["reviewed"]), row["boundary_method"], row["aggregation_policy"], row["closure_reason"],
+            links["closing"][0] if links["closing"] else None, tuple(links["bridged"]), tuple(json.loads(row["uncertainty_flags_json"])), overlaps, row["analysis_stage"],
+        )
+
+    def plays(self):
+        return [self._play_from_row(row) for row in self.db.execute("SELECT * FROM song_plays WHERE run_id = ? ORDER BY event_index", (self.run_id,))]
+
+    def schedule_snapshot(self):
+        row = self.row()
+        if row["schedule_snapshot_id"] is None:
+            return None
+        item = dict(self.db.execute("SELECT * FROM schedule_snapshots WHERE snapshot_id = ?", (row["schedule_snapshot_id"],)).fetchone())
+        item["document"] = json.loads(item.pop("document_json"))
+        return item
+
+    def records(self):
+        """Yield diagnostic version-2 records inside the caller's read snapshot."""
+        row = self.row()
+
+        def record(kind, **fields):
+            return {"schema_version": 2, "type": kind, "run_id": self.run_id, **fields}
+
+        yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
+        events = self.db.execute("""SELECT event_index, 'raw' AS kind, result_id AS id FROM recognition_results WHERE run_id = ?
+            UNION ALL SELECT event_index, 'resolution', result_id FROM track_resolutions WHERE run_id = ?
+            UNION ALL SELECT event_index, 'play', play_id FROM song_plays WHERE run_id = ? ORDER BY event_index""", (self.run_id,) * 3)
+        for event in events:
+            if event["kind"] == "raw":
+                raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ?", (event["id"],)).fetchone()
+                result = result_from_row(raw)
+                yield record("recognition_result", **result_document(result), processed_at=raw["processed_at"], start_time=self.source.time_at_frame(result.window.start_frame).isoformat(), end_time=self.source.time_at_frame(result.window.end_frame).isoformat())
+            elif event["kind"] == "resolution":
+                yield record("track_resolution", **asdict(self.resolution(event["id"])))
+            else:
+                item = self.db.execute("SELECT * FROM song_plays WHERE play_id = ?", (event["id"],)).fetchone()
+                play = self._play_from_row(item)
+                yield record("song_play_closed", **asdict(play), start_time=self.source.time_at_frame(play.window.start_frame).isoformat(), end_time=self.source.time_at_frame(play.window.end_frame).isoformat())
+        if row["status"] == "completed":
+            yield record("run_completed", completed_at=row["ended_at"], **json.loads(row["terminal_summary_json"]))
+        elif row["status"] != "running":
+            yield record("run_interrupted" if row["status"] == "interrupted" else "run_failed", stopped_at=row["ended_at"], error=row["terminal_error"], **json.loads(row["terminal_summary_json"]))

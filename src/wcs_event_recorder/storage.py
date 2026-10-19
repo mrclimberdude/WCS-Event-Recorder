@@ -1,0 +1,152 @@
+"""SQLite lifecycle and persistent canonical track catalog."""
+
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+
+from .models import ExternalTrackMapping, Track
+from .resolution import NORMALIZATION_VERSION, metadata_key
+from .schema import APPLICATION_ID, SCHEMA_VERSION, STATEMENTS, TABLES
+
+
+class StorageError(RuntimeError):
+    """The local database could not be opened, read, or updated."""
+
+
+class Database:
+    def __init__(self, path: Path, *, readonly: bool = False, timeout: float = 5):
+        self.path = Path(path).resolve()
+        self.readonly = readonly
+        self.timeout = timeout
+        self.connection: sqlite3.Connection | None = None
+
+    def __enter__(self):
+        if self.connection is not None:
+            raise StorageError("database connection is already open")
+        try:
+            if not self.readonly:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.connection = sqlite3.connect(
+                self.path.as_uri() + ("?mode=ro" if self.readonly else "?mode=rwc"),
+                uri=True, timeout=self.timeout, isolation_level=None,
+            )
+            self.connection.row_factory = sqlite3.Row
+            self.execute("PRAGMA foreign_keys = ON")
+            if self.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+                raise StorageError("SQLite foreign-key enforcement is unavailable")
+            if self.readonly:
+                self._check_schema()
+            else:
+                with self.transaction():
+                    self._check_schema(initialize=True)
+            return self
+        except (OSError, sqlite3.Error) as exc:
+            self.close()
+            raise StorageError(f"cannot open database '{self.path}': {exc}") from exc
+        except BaseException:
+            self.close()
+            raise
+
+    def execute(self, sql: str, parameters=()):
+        if self.connection is None:
+            raise StorageError("database connection is closed")
+        try:
+            return self.connection.execute(sql, parameters)
+        except sqlite3.Error as exc:
+            raise StorageError(f"database '{self.path}': {exc}") from exc
+
+    def _check_schema(self, *, initialize: bool = False) -> None:
+        application = self.execute("PRAGMA application_id").fetchone()[0]
+        version = self.execute("PRAGMA user_version").fetchone()[0]
+        objects = self.execute("SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").fetchall()
+        if application == 0 and version == 0 and not objects and initialize:
+            for sql in STATEMENTS:
+                self.execute(sql)
+            self.execute(f"PRAGMA application_id = {APPLICATION_ID}")
+            self.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        elif application != APPLICATION_ID or version != SCHEMA_VERSION:
+            raise StorageError(f"unrecognized database or unsupported schema version {version}: '{self.path}'")
+        elif not TABLES <= {row["name"] for row in objects}:
+            raise StorageError(f"database schema is incomplete: '{self.path}'")
+        if self.execute("SELECT 1 FROM tracks WHERE normalization_version != ? LIMIT 1", (NORMALIZATION_VERSION,)).fetchone():
+            raise StorageError("unsupported catalog normalization version")
+
+    @contextmanager
+    def transaction(self, *, write: bool = True):
+        if self.connection is None or self.connection.in_transaction:
+            raise StorageError("transaction requires an open connection without an active transaction")
+        self.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+        try:
+            yield
+            self.execute("COMMIT")
+        except BaseException:
+            if self.connection.in_transaction:
+                try:
+                    self.connection.rollback()
+                except sqlite3.Error:
+                    pass  # Preserve the error that made this transaction fail.
+            raise
+
+    def require_transaction(self) -> None:
+        if self.connection is None or not self.connection.in_transaction or self.readonly:
+            raise StorageError("writes require an explicit writable transaction")
+
+    def close(self) -> None:
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            finally:
+                self.connection = None
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False
+
+
+class SQLiteTrackCatalog:
+    def __init__(self, database: Database, *, first_result_id: str | None = None):
+        self.db = database
+        self.first_result_id = first_result_id
+
+    def __len__(self) -> int:
+        return self.db.execute("SELECT count(*) FROM tracks").fetchone()[0]
+
+    def get(self, track_id: str) -> Track:
+        row = self.db.execute("SELECT * FROM tracks WHERE track_id = ?", (track_id,)).fetchone()
+        if row is None:
+            raise KeyError(track_id)
+        mappings = self.db.execute("SELECT service, external_id FROM track_mappings WHERE track_id = ? ORDER BY mapping_order", (track_id,))
+        return Track(track_id, row["title"], row["artist"], tuple(ExternalTrackMapping(*item) for item in mappings))
+
+    def find_metadata(self, key: tuple[str, str]) -> set[str]:
+        return {row[0] for row in self.db.execute(
+            "SELECT track_id FROM tracks WHERE normalization_version = ? AND title_key = ? AND artist_key = ?",
+            (NORMALIZATION_VERSION, *key),
+        )}
+
+    def find_mapping(self, service: str, external_id: str) -> set[str]:
+        return {row[0] for row in self.db.execute("SELECT track_id FROM track_mappings WHERE service = ? AND external_id = ?", (service, external_id))}
+
+    def save(self, track: Track) -> None:
+        self.db.require_transaction()
+        try:
+            old = self.get(track.track_id)
+        except KeyError:
+            old = None
+        if old is not None and (
+            (old.title, old.artist) != (track.title, track.artist)
+            or not set(old.external_mappings) <= set(track.external_mappings)
+        ):
+            raise ValueError("catalog updates must preserve display metadata and existing mappings")
+        if old is None:
+            self.db.execute("INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?)", (
+                track.track_id, track.title, track.artist, *metadata_key(track.title, track.artist), NORMALIZATION_VERSION, self.first_result_id,
+            ))
+        existing = set(old.external_mappings) if old else set()
+        order = len(existing)
+        for mapping in dict.fromkeys(track.external_mappings):
+            if mapping not in existing:
+                self.db.execute("INSERT INTO track_mappings VALUES (?, ?, ?, ?, ?)", (
+                    track.track_id, mapping.service, mapping.external_id, self.first_result_id, order,
+                ))
+                order += 1

@@ -6,7 +6,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 steps 1–5 are implemented: package/CLI, input validation, file replay, recognition windows/fixtures, conservative track resolution, provisional song-play aggregation, and streaming evidence. SQLite persistence, schedule attribution, and real-provider evaluation remain. The real event evaluation sample still needs to be selected.
+Phase 1 steps 1–6 are implemented: package/CLI, input validation, file replay, recognition windows/fixtures, conservative track resolution, provisional song-play aggregation, and authoritative SQLite persistence with run inspection/export. Schedule attribution and real-provider evaluation remain. The real event evaluation sample still needs to be selected.
 
 ## Setup and verification
 
@@ -64,6 +64,19 @@ The new fixture declares `A, A, A, B, B, A, A, no-match` for the same two-second
 
 Expect two track identities and three provisional plays: A at estimated frames `[0, 6000)`, B at `[6000, 10000)`, and A again at `[10000, 14000)`. The two A plays share a track ID and have different play IDs. The final unknown window does not extend the last play. Version-2 JSONL preserves raw results, resolution decisions, and play evidence. Existing `recognize-fixture` output remains version 1. See the [aggregation guide](docs/aggregation.md) for identity, gap, boundary, and failure policies.
 
+## Save analysis in SQLite
+
+Process the same demo directly into a local database, with an optional schedule snapshot:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe process-fixture --database data/tracker.sqlite3 --manifest data/samples/demo/manifest.json --schedule data/samples/demo/schedule.json --fixture tests/fixtures/aggregation-demo.json --chunk-seconds 0.1 --window-seconds 0.25 --hop-seconds 0.25
+.\.venv\Scripts\wcs-recorder.exe list-runs --database data/tracker.sqlite3
+.\.venv\Scripts\wcs-recorder.exe show-run --database data/tracker.sqlite3 --run-id YOUR-RUN-ID --details
+.\.venv\Scripts\wcs-recorder.exe export-run --database data/tracker.sqlite3 --run-id YOUR-RUN-ID --output data/runs/database-demo.jsonl
+```
+
+Replace `YOUR-RUN-ID` with the printed run UUID. Repeating processing creates a separate run while reusing compatible canonical track IDs. Committed raw evidence survives later derivation failures; historical resolution snapshots stay unchanged as the catalog grows. Inspection/export reads saved metadata without needing the original audio or schedule files. Schedule attribution is still pending. See the [persistence guide](docs/persistence.md) for failure states, schema, manual checks, and limitations.
+
 ## Start here
 
 - [Project overview](docs/project-overview.md): goals, architecture, data model, and constraints.
@@ -72,8 +85,11 @@ Expect two track identities and three provisional plays: A at estimated frames `
 - [File replay](docs/replay.md): bounded WAV reading, replay modes, and manual verification.
 - [Recognition](docs/recognition.md): window assembly, fixture recognition, and saved run evidence.
 - [Aggregation](docs/aggregation.md): conservative track identity, provisional song plays, and version-2 evidence.
+- [Persistence](docs/persistence.md): SQLite processing, durable identities, incremental evidence, run inspection, and optional export.
 - [Step 4 plan](docs/phase-1-step-4-plan.md): original implementation assessment and completed step 4 design.
 - [Step 5 plan](docs/phase-1-step-5-plan.md): original reassessment and implemented track-resolution/song-play design.
+- [Step 6 plan](docs/phase-1-step-6-plan.md): original reassessment and implemented SQLite persistence design.
+- [Step 7 plan](docs/phase-1-step-7-plan.md): current reassessment and proposed schedule attribution, database migration, and context export design.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -91,12 +107,15 @@ Expect two track identities and three provisional plays: A at estimated frames `
 |   |-- replay.md
 |   |-- recognition.md
 |   |-- aggregation.md
+|   |-- persistence.md
 |   |-- phase-1-step-4-plan.md
-|   `-- phase-1-step-5-plan.md
+|   |-- phase-1-step-5-plan.md
+|   |-- phase-1-step-6-plan.md
+|   `-- phase-1-step-7-plan.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/
-|   `-- wcs_event_recorder/    # CLI, audio/replay, recognition, identity, grouping, evidence
+|   `-- wcs_event_recorder/    # CLI, replay, recognition, identity, grouping, SQLite, evidence
 |-- tests/
 |   `-- fixtures/             # Synthetic manifests, schedules, and recognition responses
 `-- data/                    # Local-only inputs and generated artifacts

@@ -1,4 +1,4 @@
-"""Small shared contracts; processing and database behavior come later."""
+"""Small shared contracts for timestamped audio, recognition, and derived evidence."""
 
 import json
 import math

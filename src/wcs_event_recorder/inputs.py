@@ -135,7 +135,13 @@ def _ids(items: tuple, attribute: str, label: str) -> set[str]:
 
 
 def load_schedule(path: Path) -> Schedule:
-    data = load_json(Path(path), "schedule")
+    return parse_schedule(load_json(Path(path), "schedule"))
+
+
+def parse_schedule(data: dict) -> Schedule:
+    """Validate the same document that will be retained as a schedule snapshot."""
+    if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+        raise InputValidationError("schedule.schema_version must be the integer 1")
     event_data = _object(data.get("event"), "schedule.event")
     event = Event(
         _text(event_data, "event_id", "event"),
@@ -259,6 +265,10 @@ def _coverage(
 def validate_inputs(manifest_path: Path, schedule_path: Path) -> ValidationReport:
     schedule = load_schedule(schedule_path)
     recording = load_recording(manifest_path)
+    return validate_schedule(recording, schedule)
+
+
+def validate_schedule(recording: RecordingSource, schedule: Schedule) -> ValidationReport:
     if recording.event_id != schedule.event.event_id:
         raise InputValidationError("manifest.event_id does not match schedule.event.event_id")
     if recording.timezone != schedule.event.timezone:

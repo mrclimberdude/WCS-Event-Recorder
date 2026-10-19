@@ -52,3 +52,42 @@ def aggregation_inputs(input_files, tmp_path):
     path = tmp_path / "aggregation.json"
     shutil.copyfile(FIXTURES / "aggregation-demo.json", path)
     return load_recording(input_files[0]), WindowConfig(2000, 2000), path
+
+
+@pytest.fixture
+def store_factory(aggregation_inputs):
+    from wcs_event_recorder.analysis import new_run
+    from wcs_event_recorder.run_store import RunStore
+
+    def create(db, *, source=None, config=None, gap=None, **kwargs):
+        recording, windows, _ = aggregation_inputs
+        source = source or recording
+        windows = config or windows
+        configuration = {
+            "window_frames": windows.window_frames, "hop_frames": windows.hop_frames,
+            "resolution_policy": "conservative_metadata_v1", "aggregation_policy": "continuity_v1",
+            "max_gap_frames": windows.hop_frames if gap is None else gap,
+            "boundary_method": "recognition_window_envelope_v1", "provider": "fixture",
+        }
+        return RunStore.create(db, new_run(source.source_id, configuration), source, **kwargs)
+    return create
+
+
+@pytest.fixture
+def database_run(tmp_path, store_factory):
+    from wcs_event_recorder.storage import Database
+    with Database(tmp_path / "tracker.sqlite3") as db:
+        yield store_factory(db)
+
+
+@pytest.fixture
+def demo_results(database_run, aggregation_inputs):
+    from wcs_event_recorder.analysis import recognize_windows
+    from wcs_event_recorder.audio import FileAudioSource
+    from wcs_event_recorder.recognition import load_fixture
+    from wcs_event_recorder.windows import assemble_windows
+    source, config, path = aggregation_inputs
+    return list(recognize_windows(
+        assemble_windows(FileAudioSource(source).chunks(frames_per_chunk=700), source, config),
+        load_fixture(path, source, config), database_run.run,
+    ))

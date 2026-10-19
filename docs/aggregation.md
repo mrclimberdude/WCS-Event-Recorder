@@ -49,7 +49,7 @@ Reason codes are `new_track`, `metadata_match`, `known_external_id`, `contradict
 
 Every raw match receives a `TrackResolution` linked to its result ID. A resolved decision contains an immutable Track snapshot. An unresolved one contains its reason and relevant conflicting track IDs, while the original candidate and external IDs remain in raw evidence. Raw match counts are therefore separate from resolved/unresolved counts.
 
-The catalog is currently in memory. Retaining or sharing it preserves IDs across analysis runs using that catalog. Separate CLI invocations create fresh catalogs and need not assign the same track UUIDs. Durable identity across application invocations belongs to SQLite in step 6.
+This JSONL-only command uses an in-memory catalog. Retaining or sharing that catalog preserves IDs across analysis runs, while separate invocations create fresh catalogs and need not assign the same track UUIDs. Step 6's [SQLite command](persistence.md) instead reuses persistent canonical identities across invocations.
 
 Metadata equivalence is not proof that recordings are musically identical. Missing version information can hide differences even when normalized names match. Actual identity accuracy requires real-provider evaluation.
 
@@ -113,10 +113,10 @@ The footer's `uncertain_plays` counts plays with additional qualitative flags; a
 
 On unexpected failure, source failure, output failure, or interruption, the pipeline preserves previous flushed records and closes upstream resources. It does not turn the current open occurrence into a normal EOF-closed play. Raw results and resolutions remain available to explain or reconstruct that incomplete state. Open-play snapshots and resumability are deferred.
 
-Exit codes remain `0` for completed processing with honest unknown/unresolved/error counts, `1` for processing/input/output failures, `2` for invalid arguments, and `130` for interruption. Successful completion summaries appear only after processing and artifact closure succeed. JSONL flush is useful for local inspection but is not a transactional database or power-loss durability guarantee. SQLite remains step 6.
+Exit codes remain `0` for completed processing with honest unknown/unresolved/error counts, `1` for processing/input/output failures, `2` for invalid arguments, and `130` for interruption. Successful completion summaries appear only after processing and artifact closure succeed. JSONL flush is useful for local inspection but is not a transactional database or power-loss durability guarantee. Step 6's separate [database command](persistence.md) now provides authoritative persistence and cross-invocation track identity.
 
 ## Verification
 
-The current full suite passes 302 tests. Resolution tests cover normalization, version descriptors, optional mappings, conflicts, ambiguity, shared catalogs, and immutable snapshots. Aggregation tests cover repeats, one-hop/zero/expired gaps, frame-level threshold equality, unknown statuses, overlapping estimates, sparse sampling, source/run/order validation, single detections, and EOF rules.
+Step 5's full suite passed 302 tests; the current suite including persistence passes 410. Resolution tests cover normalization, version descriptors, optional mappings, conflicts, ambiguity, shared catalogs, and immutable snapshots, now with both in-memory and SQLite catalogs. Aggregation tests cover repeats, one-hop/zero/expired gaps, frame-level threshold equality, unknown statuses, overlapping estimates, sparse sampling, source/run/order validation, single detections, and EOF rules.
 
 Output and CLI tests cover version-2 reference integrity, raw-before-derived order, incomplete/interrupted runs, output failures, overwrite refusal, correct demo grouping, equivalent results across pacing/chunk sizes, and version-1 compatibility. Manual accelerated and paced demos each produced two tracks and three plays. Actual recognition and grouping accuracy still requires the private event sample and real-provider evaluation.

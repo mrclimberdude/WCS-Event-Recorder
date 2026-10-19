@@ -4,7 +4,7 @@
 
 This project tracks music and event context at West Coast Swing events. Read `docs/project-overview.md` and `docs/implementation-plan.md` before substantial changes.
 
-The repository implements Phase 1 steps 1–5: package/CLI, inputs/validation, replay, recognition windows/fixtures, track resolution, provisional song-play aggregation, and JSONL evidence. Read `docs/input-formats.md`, `docs/replay.md`, `docs/recognition.md`, and `docs/aggregation.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
+The repository implements Phase 1 steps 1–6: package/CLI, inputs/validation, replay, recognition windows/fixtures, track resolution, provisional song-play aggregation, authoritative SQLite persistence, run inspection, and JSONL diagnostics/export. Read `docs/input-formats.md`, `docs/replay.md`, `docs/recognition.md`, `docs/aggregation.md`, and `docs/persistence.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
 
 ## Architectural rules
 
@@ -21,9 +21,11 @@ The repository implements Phase 1 steps 1–5: package/CLI, inputs/validation, r
 - The database is authoritative. Google Sheets, public web views, and playlists are optional outputs; their failures must not prevent core processing.
 - Put provider-specific behavior behind narrow adapters. Do not build acoustic fingerprinting from scratch for the MVP.
 - Fixture recognition requires an exact declared response for every full configured window. Missing fixture data is a setup error. Keep expected service failures distinct from no-match and unexpected programming failures.
-- Preserve streaming run evidence in ignored local JSONL artifacts until SQLite becomes authoritative. Refuse output overwrites and never report an incomplete/interrupted run as completed.
+- SQLite is authoritative for `process-fixture`; existing JSONL commands remain compatible diagnostics. Refuse diagnostic-output overwrites and never report an incomplete/interrupted run as completed.
 - Preserve version-1 recognition output. Aggregation emits version-2 raw-plus-derived evidence with explicit policy versions, unresolved conflicts, gap evidence, and estimated window-envelope boundaries. Never force exclusive song intervals or close an interrupted open play as normal EOF.
-- Track IDs are stable within a retained catalog. Separate CLI invocations currently use fresh in-memory catalogs; durable cross-invocation identity belongs to SQLite.
+- Database-backed runs reuse persistent Track IDs. The existing JSONL-only commands use fresh in-memory catalogs. Preserve immutable historical resolution snapshots as canonical mappings grow.
+- Commit raw results before derivation, catalog additions with their resolution decisions, and closed plays with all evidence links. Never hold write transactions during recognition or replay waits. A partial `running` row is unconfirmed, not successful or automatically resumable.
+- Keep database schema versions distinct from diagnostic versions. Enable foreign keys on every connection, refuse unrelated/unsupported databases, and inspect/export through read-only consistent snapshots. Schedule snapshots remain expected inputs; attribution is the next step.
 
 ## Audio and publication constraints
 
