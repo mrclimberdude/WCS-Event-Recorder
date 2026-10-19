@@ -1,0 +1,41 @@
+# Python environments and generated files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+
+# Private input audio and generated artifacts; retain directory placeholders
+data/*
+!data/samples/
+!data/recordings/
+data/samples/*
+!data/samples/.gitkeep
+data/recordings/*
+!data/recordings/.gitkeep
+
+# Local databases and diagnostics, including files outside data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
+
+# Machine-specific clutter
+.DS_Store
+Thumbs.db
