@@ -9,6 +9,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from .aggregation import AggregationPolicy
+from .attribution import ScheduleAttributor, policy_from_configuration
+from .attribution_store import attribution_document, context_summary, load_attribution, save_attribution
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
@@ -28,6 +30,16 @@ class RunStore:
         self.config = WindowConfig(config["window_frames"], config["hop_frames"])
         self.policy = AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
         self.resolution_policy = ResolutionPolicy(config["resolution_policy"])
+        self.attribution_policy = policy_from_configuration(config)
+        self.attributor = None
+        if self.attribution_policy is not None:
+            if db.schema_version < 2:
+                raise StorageError("attribution requires database schema version 2")
+            snapshot = self.schedule_snapshot()
+            self.attributor = ScheduleAttributor(
+                self.source, run_id, snapshot["snapshot_id"] if snapshot else None,
+                parse_schedule(snapshot["document"]) if snapshot else None, self.attribution_policy,
+            )
 
     def row(self):
         row = self.db.execute("SELECT * FROM analysis_runs WHERE run_id = ?", (self.run_id,)).fetchone()
@@ -43,6 +55,9 @@ class RunStore:
         WindowConfig(config["window_frames"], config["hop_frames"])
         AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
         ResolutionPolicy(config["resolution_policy"])
+        attribution_policy = policy_from_configuration(config)
+        if attribution_policy is not None and db.schema_version < 2:
+            raise StorageError("attribution requires database schema version 2")
         warnings = []
         if schedule_document is not None:
             schedule = parse_schedule(schedule_document)
@@ -147,6 +162,7 @@ class RunStore:
             self.db.execute("INSERT INTO resolution_conflicts VALUES (?, ?)", (resolution.result_id, track_id))
 
     def play(self, play):
+        context = self.attributor.attribute(play) if self.attributor is not None else None
         with self.db.transaction():
             self._open()
             if play.run_id != self.run_id or play.window.source_id != self.source.source_id or play.aggregation_policy != self.policy.version:
@@ -179,6 +195,8 @@ class RunStore:
                     self.db.execute("INSERT INTO play_evidence VALUES (?, ?, ?, ?, ?)", (play.play_id, result_id, self.run_id, role, position))
             for position, previous_id in enumerate(play.overlapping_play_ids):
                 self.db.execute("INSERT INTO play_overlaps VALUES (?, ?, ?, ?)", (play.play_id, previous_id, self.run_id, position))
+            if context is not None:
+                save_attribution(self.db, context, play, self.attributor, utc_now(), self._next_event())
 
     def summary(self):
         counts = {status.value: 0 for status in RecognitionStatus}
@@ -187,12 +205,15 @@ class RunStore:
         resolutions = {item.value: 0 for item in ResolutionDecision}
         for row in self.db.execute("SELECT decision, count(*) FROM track_resolutions WHERE run_id = ? GROUP BY decision", (self.run_id,)):
             resolutions[row[0]] = row[1]
-        return {
+        summary = {
             "counts": counts, "resolution_counts": resolutions,
             "unique_tracks": self.db.execute("SELECT count(DISTINCT track_id) FROM track_resolutions WHERE run_id = ?", (self.run_id,)).fetchone()[0],
             "song_plays": self.db.execute("SELECT count(*) FROM song_plays WHERE run_id = ?", (self.run_id,)).fetchone()[0],
             "uncertain_plays": self.db.execute("SELECT count(*) FROM song_plays WHERE run_id = ? AND uncertainty_flags_json != '[]'", (self.run_id,)).fetchone()[0],
         }
+        if self.attributor is not None:
+            summary["context"] = context_summary(self.db, self.run_id)
+        return summary
 
     def complete(self):
         with self.db.transaction():
@@ -208,6 +229,11 @@ class RunStore:
                 (SELECT 1 FROM play_evidence e WHERE e.result_id = t.result_id AND e.role = 'support') LIMIT 1""", (self.run_id,)).fetchone()
             if missing:
                 raise ValueError("all resolved detections must belong to closed plays before completion")
+            if self.attributor is not None:
+                if summary["context"]["plays"] != summary["song_plays"]:
+                    raise ValueError("every closed play requires schedule attribution")
+                for play in self.plays():
+                    self.attributor.validate(self.attribution(play.play_id), play)
             last = self.config.last_end_frame(self.source.frame_count)
             summary.update(source_frame_count=self.source.frame_count, attempts=expected, last_window_end_frame=last, trailing_frames=self.source.frame_count - last)
             self._terminal("completed", summary)
@@ -257,17 +283,25 @@ class RunStore:
         item["document"] = json.loads(item.pop("document_json"))
         return item
 
+    def attribution(self, play_id):
+        if self.attributor is None:
+            return None
+        return load_attribution(self.db, self.run_id, play_id)
+
     def records(self):
-        """Yield diagnostic version-2 records inside the caller's read snapshot."""
+        """Yield version 2 (legacy) or 3 (context) inside the caller's read snapshot."""
         row = self.row()
 
         def record(kind, **fields):
-            return {"schema_version": 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
-        events = self.db.execute("""SELECT event_index, 'raw' AS kind, result_id AS id FROM recognition_results WHERE run_id = ?
+        event_sql = """SELECT event_index, 'raw' AS kind, result_id AS id FROM recognition_results WHERE run_id = ?
             UNION ALL SELECT event_index, 'resolution', result_id FROM track_resolutions WHERE run_id = ?
-            UNION ALL SELECT event_index, 'play', play_id FROM song_plays WHERE run_id = ? ORDER BY event_index""", (self.run_id,) * 3)
+            UNION ALL SELECT event_index, 'play', play_id FROM song_plays WHERE run_id = ?"""
+        if self.attributor is not None:
+            event_sql += " UNION ALL SELECT event_index, 'context', play_id FROM play_attributions WHERE run_id = ?"
+        events = self.db.execute(event_sql + " ORDER BY event_index", (self.run_id,) * (4 if self.attributor is not None else 3))
         for event in events:
             if event["kind"] == "raw":
                 raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ?", (event["id"],)).fetchone()
@@ -275,6 +309,10 @@ class RunStore:
                 yield record("recognition_result", **result_document(result), processed_at=raw["processed_at"], start_time=self.source.time_at_frame(result.window.start_frame).isoformat(), end_time=self.source.time_at_frame(result.window.end_frame).isoformat())
             elif event["kind"] == "resolution":
                 yield record("track_resolution", **asdict(self.resolution(event["id"])))
+            elif event["kind"] == "context":
+                attribution = self.attribution(event["id"])
+                item = self.db.execute("SELECT processed_at FROM play_attributions WHERE attribution_id = ?", (attribution.attribution_id,)).fetchone()
+                yield record("play_context_attributed", **attribution_document(attribution, self.source), processed_at=item["processed_at"])
             else:
                 item = self.db.execute("SELECT * FROM song_plays WHERE play_id = ?", (event["id"],)).fetchone()
                 play = self._play_from_row(item)

@@ -23,9 +23,14 @@ class Recognizer(Protocol):
 class RecognitionServiceError(Exception):
     """An expected per-attempt service failure; unexpected exceptions remain fatal."""
 
-    def __init__(self, message: str, raw_evidence: Mapping[str, object] | None = None):
+    def __init__(self, message: str, raw_evidence: Mapping[str, object] | None = None, *, stop_run: bool = False):
         super().__init__(message)
         self.raw_evidence = {} if raw_evidence is None else raw_evidence
+        self.stop_run = stop_run
+
+
+class RecognitionStopped(RuntimeError):
+    """A run-wide service failure, raised only after yielding its error evidence."""
 
 
 def _object(value, name: str) -> dict:

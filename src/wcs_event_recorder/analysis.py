@@ -7,7 +7,7 @@ from uuid import uuid4
 from .models import AnalysisRun, AudioChunk, RecognitionOutcome, RecognitionResult, RecognitionStatus, SongPlay, TrackResolution
 from .aggregation import SongPlayAggregator
 from .resolution import TrackResolver
-from .recognition import RecognitionServiceError, Recognizer
+from .recognition import RecognitionServiceError, RecognitionStopped, Recognizer
 
 
 def new_run(source_id: str, configuration: Mapping[str, object]) -> AnalysisRun:
@@ -22,18 +22,23 @@ def recognize_windows(
         for audio in iterator:
             if audio.source.source_id != run.source_id:
                 raise ValueError("analysis run and recognition window reference different sources")
+            stop_message = None
             try:
                 outcome = recognizer.recognize(audio)
             except RecognitionServiceError as exc:
                 outcome = RecognitionOutcome(
                     recognizer.provider, RecognitionStatus.ERROR, exc.raw_evidence, error=str(exc)
                 )
+                if exc.stop_run:
+                    stop_message = str(exc)
             if not isinstance(outcome, RecognitionOutcome) or outcome.provider != recognizer.provider:
                 raise ValueError("recognizer returned an invalid outcome or mismatched provider")
             yield RecognitionResult(
                 str(uuid4()), run.run_id, audio.window, outcome.provider, outcome.status,
                 outcome.raw_evidence, outcome.candidate, outcome.error,
             )
+            if stop_message is not None:
+                raise RecognitionStopped(stop_message)
     finally:
         close = getattr(iterator, "close", None)
         if close is not None:

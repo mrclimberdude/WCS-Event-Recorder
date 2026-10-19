@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .models import ExternalTrackMapping, Track
 from .resolution import NORMALIZATION_VERSION, metadata_key
-from .schema import APPLICATION_ID, SCHEMA_VERSION, STATEMENTS, TABLES
+from .schema import APPLICATION_ID, ATTRIBUTION_STATEMENTS, SCHEMA_VERSION, STATEMENTS, TABLES, V1_TABLES
 
 
 class StorageError(RuntimeError):
@@ -19,6 +19,7 @@ class Database:
         self.readonly = readonly
         self.timeout = timeout
         self.connection: sqlite3.Connection | None = None
+        self.schema_version: int | None = None
 
     def __enter__(self):
         if self.connection is not None:
@@ -64,12 +65,19 @@ class Database:
                 self.execute(sql)
             self.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             self.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        elif application != APPLICATION_ID or version != SCHEMA_VERSION:
+            version = SCHEMA_VERSION
+        elif application != APPLICATION_ID or version not in {1, SCHEMA_VERSION}:
             raise StorageError(f"unrecognized database or unsupported schema version {version}: '{self.path}'")
-        elif not TABLES <= {row["name"] for row in objects}:
+        elif not (V1_TABLES if version == 1 else TABLES) <= {row["name"] for row in objects}:
             raise StorageError(f"database schema is incomplete: '{self.path}'")
         if self.execute("SELECT 1 FROM tracks WHERE normalization_version != ? LIMIT 1", (NORMALIZATION_VERSION,)).fetchone():
             raise StorageError("unsupported catalog normalization version")
+        if version == 1 and initialize:
+            for sql in ATTRIBUTION_STATEMENTS:
+                self.execute(sql)
+            self.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            version = SCHEMA_VERSION
+        self.schema_version = version
 
     @contextmanager
     def transaction(self, *, write: bool = True):

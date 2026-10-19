@@ -59,7 +59,7 @@ def store_factory(aggregation_inputs):
     from wcs_event_recorder.analysis import new_run
     from wcs_event_recorder.run_store import RunStore
 
-    def create(db, *, source=None, config=None, gap=None, **kwargs):
+    def create(db, *, source=None, config=None, gap=None, attribution=False, configuration_extra=None, **kwargs):
         recording, windows, _ = aggregation_inputs
         source = source or recording
         windows = config or windows
@@ -69,6 +69,9 @@ def store_factory(aggregation_inputs):
             "max_gap_frames": windows.hop_frames if gap is None else gap,
             "boundary_method": "recognition_window_envelope_v1", "provider": "fixture",
         }
+        if attribution:
+            configuration.update(attribution_policy="schedule_intervals_v1", attribution_boundary_policy="sample_start_ceiling_v1")
+        configuration.update(configuration_extra or {})
         return RunStore.create(db, new_run(source.source_id, configuration), source, **kwargs)
     return create
 
@@ -91,3 +94,34 @@ def demo_results(database_run, aggregation_inputs):
         assemble_windows(FileAudioSource(source).chunks(frames_per_chunk=700), source, config),
         load_fixture(path, source, config), database_run.run,
     ))
+
+
+@pytest.fixture
+def context_run(database_run, store_factory, input_files):
+    from wcs_event_recorder.inputs import load_json
+    return store_factory(database_run.db, attribution=True, schedule_document=load_json(input_files[1], "schedule"), schedule_path=input_files[1])
+
+
+@pytest.fixture
+def legacy_database(tmp_path):
+    """A genuine old schema, not a current schema with a changed version marker."""
+    import json
+    import sqlite3
+    from wcs_event_recorder.storage import Database
+    schema = json.loads((FIXTURES / "schema-v1.json").read_text())
+    path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(path, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("BEGIN")
+    for sql in schema["STATEMENTS"]:
+        connection.execute(sql)
+    connection.execute(f"PRAGMA application_id = {schema['APPLICATION_ID']}")
+    connection.execute("PRAGMA user_version = 1")
+    connection.commit()
+    db = Database(path)
+    db.connection, db.schema_version = connection, 1
+    try:
+        yield db
+    finally:
+        db.close()

@@ -6,7 +6,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 steps 1–6 are implemented: package/CLI, input validation, file replay, recognition windows/fixtures, conservative track resolution, provisional song-play aggregation, and authoritative SQLite persistence with run inspection/export. Schedule attribution and real-provider evaluation remain. The real event evaluation sample still needs to be selected.
+Phase 1 steps 1–7 and step 8's offline implementation are complete: file replay, recognition windows, track resolution, provisional plays, SQLite evidence, scheduled context, and run inspection/export now support both fixtures and an explicitly enabled AudD adapter. Upload preview and independent read-only evaluation are available. A real labeled event sample, bounded provider trial, and Phase 1 acceptance review remain pending; mocked tests do not measure acoustic accuracy.
 
 ## Setup and verification
 
@@ -20,7 +20,7 @@ Use Python 3.11 or newer. The commands below run in PowerShell from this reposit
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Environment activation is optional because these commands use its executables directly. Installation downloads build/test dependencies and timezone data; the installed validator and tests run offline. Runtime dependencies are declared in `pyproject.toml`; pytest is an optional development dependency.
+Environment activation is optional because these commands use its executables directly. Installation downloads dependencies including timezone data and HTTPX; the installed validator and automated tests run offline. Runtime dependencies are declared in `pyproject.toml`; pytest is an optional development dependency.
 
 ## Try input validation
 
@@ -75,7 +75,25 @@ Process the same demo directly into a local database, with an optional schedule 
 .\.venv\Scripts\wcs-recorder.exe export-run --database data/tracker.sqlite3 --run-id YOUR-RUN-ID --output data/runs/database-demo.jsonl
 ```
 
-Replace `YOUR-RUN-ID` with the printed run UUID. Repeating processing creates a separate run while reusing compatible canonical track IDs. Committed raw evidence survives later derivation failures; historical resolution snapshots stay unchanged as the catalog grows. Inspection/export reads saved metadata without needing the original audio or schedule files. Schedule attribution is still pending. See the [persistence guide](docs/persistence.md) for failure states, schema, manual checks, and limitations.
+Replace `YOUR-RUN-ID` with the printed run UUID. Repeating processing creates a separate run while reusing compatible canonical track IDs. Committed raw evidence survives later derivation failures; historical resolution snapshots stay unchanged as the catalog grows. The saved schedule now supplies expected session/DJ segments: B remains one play across midnight while its context changes from social to competition. Missing/ambiguous context stays explicit. New database runs export version 3; old histories and standalone commands retain their formats. See the [persistence guide](docs/persistence.md) and [attribution guide](docs/attribution.md) for migration, failure states, and manual checks.
+
+## Preview provider uploads and evaluate saved runs
+
+Preview a private PCM recording without credentials, network requests, or database changes:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe plan-audd --manifest data/samples/private/manifest.json --schedule data/samples/private/schedule.json --max-requests 30
+```
+
+Defaults are 10-second windows/hops and a 30-request ceiling. Invalid or over-budget plans are refused before uploading. With `AUDD_API_TOKEN` configured locally through the environment, the separate `process-audd` command explicitly uploads private windows and saves results through the existing database pipeline. See the [provider guide](docs/provider-recognition.md) for limits, execution commands, errors, and credential handling. No real provider requests have been made during implementation verification.
+
+Evaluate an existing hash-bound run against independently prepared labels without another provider call:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe evaluate-run --database data/evaluation.sqlite3 --run-id YOUR-RUN-ID --labels data/samples/private/labels.json --output data/reports/evaluation.json
+```
+
+Reports separate recognition, identity, grouping, and estimated timing, with exclusions, censored boundaries, evidence IDs, and honest partial-run coverage. Read the [evaluation guide](docs/evaluation.md) before preparing labels or interpreting metrics. Older runs without a persisted source hash are refused rather than implicitly rebound to a current file.
 
 ## Start here
 
@@ -86,10 +104,14 @@ Replace `YOUR-RUN-ID` with the printed run UUID. Repeating processing creates a 
 - [Recognition](docs/recognition.md): window assembly, fixture recognition, and saved run evidence.
 - [Aggregation](docs/aggregation.md): conservative track identity, provisional song plays, and version-2 evidence.
 - [Persistence](docs/persistence.md): SQLite processing, durable identities, incremental evidence, run inspection, and optional export.
+- [Schedule attribution](docs/attribution.md): expected session/DJ intervals, uncertainty, frame boundaries, migration, and version-3 export.
+- [Provider recognition](docs/provider-recognition.md): offline upload planning, explicit AudD execution, budgets, privacy, errors, and verification.
+- [Evaluation](docs/evaluation.md): independent hash-bound labels and read-only recognition/identity/grouping/timing reports.
 - [Step 4 plan](docs/phase-1-step-4-plan.md): original implementation assessment and completed step 4 design.
 - [Step 5 plan](docs/phase-1-step-5-plan.md): original reassessment and implemented track-resolution/song-play design.
 - [Step 6 plan](docs/phase-1-step-6-plan.md): original reassessment and implemented SQLite persistence design.
-- [Step 7 plan](docs/phase-1-step-7-plan.md): current reassessment and proposed schedule attribution, database migration, and context export design.
+- [Step 7 plan](docs/phase-1-step-7-plan.md): original reassessment and implemented schedule attribution/migration design.
+- [Step 8 plan](docs/phase-1-step-8-plan.md): implemented offline provider/evaluation design and remaining private-sample acceptance gate.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -108,10 +130,14 @@ Replace `YOUR-RUN-ID` with the printed run UUID. Repeating processing creates a 
 |   |-- recognition.md
 |   |-- aggregation.md
 |   |-- persistence.md
+|   |-- attribution.md
+|   |-- provider-recognition.md
+|   |-- evaluation.md
 |   |-- phase-1-step-4-plan.md
 |   |-- phase-1-step-5-plan.md
 |   |-- phase-1-step-6-plan.md
-|   `-- phase-1-step-7-plan.md
+|   |-- phase-1-step-7-plan.md
+|   `-- phase-1-step-8-plan.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/

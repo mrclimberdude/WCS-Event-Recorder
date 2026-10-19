@@ -1,6 +1,6 @@
 # Phase 1 reassessment and step 7 implementation plan
 
-Status: proposed; schedule attribution is not implemented. This assessment follows the implemented SQLite pipeline. The last full verification passed 410 tests, with separate accelerated/paced database demonstrations. Tests were not rerun for this documentation-only change.
+Status: implemented and verified with 489 passing tests and separate CLI/manual migration demonstrations; see the [attribution guide](attribution.md). This document preserves the original reassessment and proposed design. The baseline below describes the repository before step 7, when the last full verification passed 410 tests. The attribution, migration, and context-aware export described below are now implemented.
 
 ## Progress through the plan
 

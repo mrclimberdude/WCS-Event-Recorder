@@ -60,7 +60,8 @@ def test_process_twice_then_inspect_and_export_from_new_processes(process_args, 
     exported = run_cli("export-run", "--database", database, "--run-id", run_id, "--output", output)
     assert exported.returncode == 0, exported.stderr
     records = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(records) == 20 and records[-1]["type"] == "run_completed"
+    assert len(records) == 23 and records[-1]["type"] == "run_completed"
+    assert all(row["schema_version"] == 3 for row in records)
     assert len(original) > 0
 
 
@@ -118,7 +119,7 @@ def test_cli_failure_retains_inspectable_evidence(process_args, monkeypatch, cap
     assert status in capsys.readouterr().out
 
 
-def test_paced_and_accelerated_database_processing_are_equivalent(process_args, monkeypatch):
+def test_paced_and_accelerated_database_processing_are_equivalent(process_args, input_files, monkeypatch):
     # Replay's injected clock still exercises pacing, without real waiting.
     from wcs_event_recorder import cli
     real_replay = cli.replay
@@ -133,6 +134,7 @@ def test_paced_and_accelerated_database_processing_are_equivalent(process_args, 
         return real_replay(source, **kwargs, monotonic=lambda: clock[0], sleep=sleep)
 
     monkeypatch.setattr(cli, "replay", fake_replay)
+    process_args = [*process_args, "--schedule", str(input_files[1])]
     assert main(process_args) == 0
     assert sleeps == []
     assert main([*process_args, "--mode", "paced", "--chunk-seconds", "0.75"]) == 0
@@ -140,7 +142,7 @@ def test_paced_and_accelerated_database_processing_are_equivalent(process_args, 
     with Database(process_args[2], readonly=True) as db:
         stores = [RunStore(db, row[0]) for row in db.execute("SELECT run_id FROM analysis_runs ORDER BY started_at")]
         def semantic(store):
-            return [(p.track_id, p.window, len(p.recognition_result_ids), p.uncertainty_flags, p.closure_reason) for p in store.plays()]
+            return [(p.track_id, p.window, len(p.recognition_result_ids), p.uncertainty_flags, p.closure_reason, store.attribution(p.play_id).segments) for p in store.plays()]
         assert semantic(stores[0]) == semantic(stores[1])
 
 
@@ -155,3 +157,40 @@ def test_inspection_of_missing_database_has_clear_error_and_creates_no_file(tmp_
 def test_running_row_is_explicitly_unconfirmed(database_run, capsys):
     assert main(["show-run", "--database", str(database_run.db.path), "--run-id", database_run.run_id]) == 0
     assert "running (completion unconfirmed)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", ["no_schedule", "gap", "overlap", "unknown_type"])
+def test_context_labels_explain_schedule_uncertainty(process_args, input_files, case, capsys):
+    args = process_args
+    if case != "no_schedule":
+        document = json.loads(input_files[1].read_text())
+        if case == "gap":
+            document["sessions"] = []
+        elif case == "overlap":
+            document["dj_shifts"].append({**document["dj_shifts"][0], "shift_id": "duplicate-shift"})
+        else:
+            document["sessions"][0]["type"] = "unknown"
+        input_files[1].write_text(json.dumps(document))
+        args = [*args, "--schedule", str(input_files[1])]
+    assert main(args) == 0
+    text = capsys.readouterr().out
+    expected = {"no_schedule": "unknown (no_schedule)", "gap": "unknown (uncovered)", "overlap": "ambiguous (duplicate-shift, first-shift)", "unknown_type": "unknown (unique schedule entry)"}[case]
+    assert expected in text and "basis: schedule_only" in text
+
+
+def test_contextual_export_contains_source_candidate_and_timing_evidence(process_args, input_files, tmp_path):
+    result = run_cli(*process_args, "--schedule", input_files[1])
+    assert result.returncode == 0
+    with Database(process_args[2], readonly=True) as db:
+        run_id = db.execute("SELECT run_id FROM analysis_runs").fetchone()[0]
+    output = tmp_path / "context.jsonl"
+    result = run_cli("export-run", "--database", process_args[2], "--run-id", run_id, "--output", output)
+    assert result.returncode == 0
+    records = [json.loads(line) for line in output.read_text().splitlines()]
+    contexts = [r for r in records if r["type"] == "play_context_attributed"]
+    assert len(contexts) == 3 and sum(len(r["segments"]) for r in contexts) == 4
+    assert contexts[1]["segments"][1]["session_ids"] == ["competition"]
+    assert contexts[1]["segments"][1]["division"] == "Novice Jack & Jill"
+    assert contexts[1]["segments"][1]["start_time"] == "2027-01-02T05:00:00+00:00"
+    assert contexts[1]["snapshot_id"] == records[0]["schedule_snapshot"]["snapshot_id"]
+    assert contexts[1]["confidence"] is None

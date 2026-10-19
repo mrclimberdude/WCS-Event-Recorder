@@ -1,9 +1,9 @@
-"""Version 1 of the local evidence database; JSONL versions are independent."""
+"""Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-STATEMENTS = (
+V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
         source_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, room_id TEXT NOT NULL,
         audio_path TEXT NOT NULL, start_time TEXT NOT NULL, timezone TEXT NOT NULL,
@@ -89,8 +89,42 @@ STATEMENTS = (
         CHECK(play_id != previous_play_id))""",
 )
 
-TABLES = {
+V1_TABLES = {
     "recording_sources", "schedule_snapshots", "analysis_runs", "recognition_results",
     "tracks", "track_mappings", "track_resolutions", "resolution_conflicts",
     "song_plays", "play_evidence", "play_overlaps",
 }
+
+ATTRIBUTION_STATEMENTS = (
+    """CREATE TABLE play_attributions (
+        attribution_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, play_id TEXT NOT NULL,
+        source_id TEXT NOT NULL, start_frame INTEGER NOT NULL CHECK(start_frame >= 0),
+        frame_count INTEGER NOT NULL CHECK(frame_count > 0),
+        snapshot_id TEXT REFERENCES schedule_snapshots, policy_version TEXT NOT NULL,
+        boundary_policy TEXT NOT NULL, provenance TEXT, basis TEXT NOT NULL CHECK(basis = 'schedule_only'),
+        confidence REAL CHECK(confidence IS NULL), analysis_stage TEXT NOT NULL CHECK(analysis_stage = 'live_provisional'),
+        quantized_boundaries_json TEXT NOT NULL, processed_at TEXT NOT NULL,
+        event_index INTEGER NOT NULL CHECK(event_index > 0),
+        FOREIGN KEY(run_id, play_id) REFERENCES song_plays(run_id, play_id),
+        FOREIGN KEY(run_id, source_id) REFERENCES analysis_runs(run_id, source_id),
+        UNIQUE(run_id, play_id), UNIQUE(run_id, event_index),
+        CHECK((snapshot_id IS NULL) = (provenance IS NULL)))""",
+    """CREATE TABLE context_segments (
+        attribution_id TEXT NOT NULL REFERENCES play_attributions, position INTEGER NOT NULL CHECK(position >= 0),
+        start_frame INTEGER NOT NULL CHECK(start_frame >= 0), frame_count INTEGER NOT NULL CHECK(frame_count > 0),
+        session_status TEXT NOT NULL CHECK(session_status IN ('unique','ambiguous','uncovered','no_schedule')),
+        dj_status TEXT NOT NULL CHECK(dj_status IN ('unique','ambiguous','uncovered','no_schedule')),
+        session_type TEXT CHECK(session_type IN ('social','competition','unknown')),
+        division TEXT, round TEXT, dj_id TEXT, dj_name TEXT,
+        PRIMARY KEY(attribution_id, position))""",
+    """CREATE TABLE context_candidates (
+        attribution_id TEXT NOT NULL, segment_position INTEGER NOT NULL,
+        dimension TEXT NOT NULL CHECK(dimension IN ('session','dj_shift')),
+        position INTEGER NOT NULL CHECK(position >= 0), item_id TEXT NOT NULL,
+        FOREIGN KEY(attribution_id, segment_position) REFERENCES context_segments(attribution_id, position),
+        PRIMARY KEY(attribution_id, segment_position, dimension, item_id),
+        UNIQUE(attribution_id, segment_position, dimension, position))""",
+)
+
+STATEMENTS = V1_STATEMENTS + ATTRIBUTION_STATEMENTS
+TABLES = V1_TABLES | {"play_attributions", "context_segments", "context_candidates"}

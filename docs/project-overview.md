@@ -50,7 +50,7 @@ Every detection and derived play must be traceable to a source recording, absolu
 
 ## Recognition and aggregation
 
-Use an existing recognition service rather than building fingerprints. AudD is a candidate from the handoff, not a selected dependency. Periodically inspect audio windows, initially exploring a cadence around 10–20 seconds after checking the chosen provider's requirements.
+Use an existing recognition service rather than building fingerprints. The implemented [AudD adapter](provider-recognition.md) submits exact PCM WAV windows with a 10-second default window/hop and bounded explicit execution. Offline fixtures remain available. The integration is mock-tested; actual recognition quality awaits a private labeled sample and [independent evaluation](evaluation.md).
 
 Repeated detections of one continuous song become one `SongPlay`. A later replay of the same track becomes another occurrence. No-match windows, service errors, and uncertainty must be preserved rather than converted into invented detections. Recognition windows provide approximate boundaries; do not claim exact start or end times without supporting evidence.
 

@@ -1,6 +1,6 @@
 # Recognition windows and offline fixtures
 
-Step 4 connects prerecorded audio replay to deterministic fixture responses and saved run evidence. Fixture recognition returns declared answers for synthetic audio. Step 5 adds [track resolution and song-play aggregation](aggregation.md), and step 6 adds [SQLite processing and run inspection](persistence.md) through separate commands. Actual acoustic recognition and context attribution remain subsequent work.
+Step 4 connects prerecorded audio replay to deterministic fixture responses and saved run evidence. Fixture recognition returns declared answers for synthetic audio. Step 5 adds [track resolution and song-play aggregation](aggregation.md), and step 6 adds [SQLite processing and run inspection](persistence.md) through separate commands. Step 7 adds [scheduled session/DJ attribution](attribution.md) to the database path. Step 8 adds an explicitly enabled [AudD adapter](provider-recognition.md) and [independent evaluator](evaluation.md); real-sample acoustic evaluation remains pending.
 
 ## Run the demonstration
 
@@ -101,7 +101,7 @@ The diagnostic artifact contains one JSON object per line with `schema_version: 
 
 The fixture hash identifies canonicalized validated JSON content, so whitespace changes do not alter it. PCM bytes and duplicated recordings are excluded from the artifact. Each result is flushed immediately, making prior evidence readable before completion. Flush supports ordinary inspection/recovery; this is not a transactional database or a power-loss durability guarantee.
 
-Expected `RecognitionServiceError` exceptions become error outcomes and processing continues. An unexpected adapter exception, invalid stream, or output failure fails the run rather than fabricating a no-match. Prior flushed results remain inspectable. Broken storage can prevent even the failure record from being saved; an artifact without a completion record must not be treated as successful. The CLI closes upstream iterators and output on interruption or failure.
+Expected `RecognitionServiceError` exceptions become error outcomes and normally continue. Step 8 adds a keyword-only `stop_run` flag: when true, the current error is yielded before a safe `RecognitionStopped` exception is raised on resumption, before the next window. Fixture errors keep the default continuation behavior. An unexpected adapter exception, invalid stream, or output failure fails the run rather than fabricating a no-match. Prior flushed results remain inspectable. Broken storage can prevent even the failure record from being saved; an artifact without a completion record must not be treated as successful. The CLI closes upstream iterators and output on interruption or failure.
 
 Exit codes are `0` for completed processing (possibly with recorded service errors), `1` for input/source/output/unexpected failures, `2` for invalid CLI arguments, and `130` for keyboard interruption. Successful completion is printed only after result processing and artifact closure succeed. `--verbose` adds troubleshooting details.
 
@@ -111,4 +111,4 @@ These JSONL files remain local diagnostic outputs. The separate [database comman
 
 The automated suite covers exact nonzero PCM slicing at different chunk sizes, overlapping/adjacent/sparse windows, frame rounding, normal and premature EOF, discontinuities, paced availability, and source cleanup. Fixture tests cover source mismatches, missing/extra/duplicate windows, statuses, confidence, raw evidence, and optional external IDs. Run and CLI tests verify error continuation, fatal/interrupted artifacts, refusal to overwrite, output failures, run identity, equal media evidence across modes, incomplete tails, and zero-window reports.
 
-Step 4's full run passed 221 tests and step 5's passed 302; the current suite including persistence passes 410. Separate manual accelerated and paced recognition demonstrations each produced four attempts with counts 2/1/1. Those checks establish deterministic pipeline behavior, not music recognition accuracy.
+Step 4's full run passed 221 tests and step 5's passed 302; step 6's suite including persistence passed 410; current verification is recorded in the [attribution guide](attribution.md). Separate manual accelerated and paced recognition demonstrations each produced four attempts with counts 2/1/1. Those checks establish deterministic pipeline behavior, not music recognition accuracy.

@@ -357,3 +357,116 @@ class AnalysisRun:
 
     def __post_init__(self) -> None:
         _aware(self.started_at, "started_at")
+
+
+class ScheduleMatchStatus(StrEnum):
+    NO_SCHEDULE = "no_schedule"
+    UNCOVERED = "uncovered"
+    UNIQUE = "unique"
+    AMBIGUOUS = "ambiguous"
+
+
+def _unique_strings(values, name):
+    if not isinstance(values, tuple) or len(values) != len(set(values)):
+        raise ValueError(f"{name} must be an immutable tuple of unique strings")
+    for value in values:
+        _text(value, name)
+
+
+@dataclass(frozen=True)
+class ContextSegment:
+    window: AudioWindow
+    session_status: ScheduleMatchStatus
+    dj_status: ScheduleMatchStatus
+    session_ids: tuple[str, ...] = ()
+    shift_ids: tuple[str, ...] = ()
+    session_type: SessionType | None = None
+    division: str | None = None
+    round: str | None = None
+    dj_id: str | None = None
+    dj_name: str | None = None
+
+    def __post_init__(self):
+        for status, candidates, name in ((self.session_status, self.session_ids, "session_ids"), (self.dj_status, self.shift_ids, "shift_ids")):
+            if not isinstance(status, ScheduleMatchStatus):
+                raise ValueError("context statuses must be ScheduleMatchStatus values")
+            _unique_strings(candidates, name)
+            expected = ScheduleMatchStatus.UNCOVERED if not candidates else ScheduleMatchStatus.UNIQUE if len(candidates) == 1 else ScheduleMatchStatus.AMBIGUOUS
+            if status != expected and not (status == ScheduleMatchStatus.NO_SCHEDULE and not candidates):
+                raise ValueError("context status must agree with candidate cardinality")
+        if self.session_status == ScheduleMatchStatus.UNIQUE:
+            if not isinstance(self.session_type, SessionType):
+                raise ValueError("unique session requires its scheduled type")
+        elif any(value is not None for value in (self.session_type, self.division, self.round)):
+            raise ValueError("nonunique session cannot select scheduled fields")
+        if self.session_type != SessionType.COMPETITION and (self.division is not None or self.round is not None):
+            raise ValueError("division/round require a unique competition session")
+        if self.dj_status == ScheduleMatchStatus.UNIQUE:
+            _text(self.dj_id, "dj_id")
+            _text(self.dj_name, "dj_name")
+        elif self.dj_id is not None or self.dj_name is not None:
+            raise ValueError("nonunique DJ context cannot select a DJ")
+
+
+@dataclass(frozen=True)
+class QuantizedBoundary:
+    dimension: str
+    item_id: str
+    edge: str
+    original_time: datetime
+    frame: int
+
+    def __post_init__(self):
+        if self.dimension not in {"session", "dj_shift"} or self.edge not in {"start", "end"}:
+            raise ValueError("invalid quantized schedule boundary")
+        _text(self.item_id, "item_id")
+        _aware(self.original_time, "original_time")
+        _integer(self.frame, "frame", minimum=0)
+
+
+@dataclass(frozen=True)
+class PlayAttribution:
+    attribution_id: str
+    run_id: str
+    play_id: str
+    window: AudioWindow
+    snapshot_id: str | None
+    policy_version: str
+    boundary_policy: str
+    provenance: str | None
+    segments: tuple[ContextSegment, ...]
+    quantized_boundaries: tuple[QuantizedBoundary, ...] = ()
+    basis: str = "schedule_only"
+    confidence: float | None = None
+    analysis_stage: str = "live_provisional"
+
+    def __post_init__(self):
+        for name in ("attribution_id", "run_id", "play_id", "policy_version", "boundary_policy"):
+            _text(getattr(self, name), name)
+        if self.basis != "schedule_only" or self.confidence is not None or self.analysis_stage != "live_provisional":
+            raise ValueError("schedule attribution is provisional with unknown numeric confidence")
+        if self.snapshot_id is None:
+            if self.provenance is not None:
+                raise ValueError("no-schedule attribution cannot have schedule provenance")
+        else:
+            _text(self.snapshot_id, "snapshot_id")
+            _text(self.provenance, "provenance")
+        if not isinstance(self.segments, tuple) or not self.segments:
+            raise ValueError("attribution requires an immutable nonempty segment partition")
+        left = self.window.start_frame
+        for segment in self.segments:
+            if not isinstance(segment, ContextSegment) or segment.window.source_id != self.window.source_id or segment.window.start_frame != left:
+                raise ValueError("segments must be ordered and contiguous within the same source")
+            left = segment.window.end_frame
+            absent = (segment.session_status == ScheduleMatchStatus.NO_SCHEDULE, segment.dj_status == ScheduleMatchStatus.NO_SCHEDULE)
+            if absent != ((True, True) if self.snapshot_id is None else (False, False)):
+                raise ValueError("segment no-schedule states must agree with snapshot presence")
+        if left != self.window.end_frame:
+            raise ValueError("segments must cover the full estimated play envelope")
+        if not isinstance(self.quantized_boundaries, tuple):
+            raise ValueError("quantized boundaries must be immutable")
+        for boundary in self.quantized_boundaries:
+            if not isinstance(boundary, QuantizedBoundary) or not self.window.start_frame <= boundary.frame <= self.window.end_frame:
+                raise ValueError("quantized boundary lies outside the play")
+        if self.snapshot_id is None and self.quantized_boundaries:
+            raise ValueError("no-schedule attribution cannot have quantized schedule boundaries")

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "label_set_id": "synthetic-evaluation-demo",
+  "source": {
+    "source_id": "synthetic-main-001",
+    "audio_sha256": "78f82cd49af869013e8ec414a15d71f5f4f2ec8d006b6a0c50527c91eaa7a85f",
+    "sample_rate": 8000,
+    "channels": 1,
+    "sample_width": 2,
+    "frame_count": 16000
+  },
+  "tracks": [
+    {
+      "track_label_id": "a",
+      "title": "Synthetic Song A",
+      "artist": "Example Artist"
+    },
+    {
+      "track_label_id": "b",
+      "title": "Synthetic Song B",
+      "artist": "Example Artist"
+    }
+  ],
+  "intervals": [
+    {
+      "interval_id": "a-first",
+      "kind": "song",
+      "start_frame": 0,
+      "frame_count": 6000,
+      "track_label_id": "a",
+      "start_censored": true
+    },
+    {
+      "interval_id": "b-only",
+      "kind": "song",
+      "start_frame": 6000,
+      "frame_count": 4000,
+      "track_label_id": "b"
+    },
+    {
+      "interval_id": "a-return",
+      "kind": "song",
+      "start_frame": 10000,
+      "frame_count": 4000,
+      "track_label_id": "a"
+    },
+    {
+      "interval_id": "tail",
+      "kind": "silence",
+      "start_frame": 14000,
+      "frame_count": 2000
+    }
+  ],
+  "notes": "Synthetic declared identities for evaluator tests; this silent WAV is not acoustic ground truth."
+}
