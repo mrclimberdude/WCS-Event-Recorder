@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "source": "synthetic_fixture",
+  "event": {
+    "event_id": "demo-event",
+    "name": "Synthetic WCS Weekend",
+    "timezone": "America/New_York"
+  },
+  "rooms": [
+    {"room_id": "main-ballroom", "name": "Main Ballroom"}
+  ],
+  "sessions": [
+    {
+      "session_id": "social",
+      "room_id": "main-ballroom",
+      "start_time": "2027-01-01T23:00:00-05:00",
+      "end_time": "2027-01-02T00:00:00-05:00",
+      "type": "social"
+    },
+    {
+      "session_id": "competition",
+      "room_id": "main-ballroom",
+      "start_time": "2027-01-02T00:00:00-05:00",
+      "end_time": "2027-01-02T00:30:00-05:00",
+      "type": "competition",
+      "division": "Novice Jack & Jill",
+      "round": "prelims"
+    }
+  ],
+  "djs": [
+    {"dj_id": "dj-example", "name": "Example DJ"}
+  ],
+  "dj_shifts": [
+    {
+      "shift_id": "first-shift",
+      "dj_id": "dj-example",
+      "room_id": "main-ballroom",
+      "start_time": "2027-01-01T23:00:00-05:00",
+      "end_time": "2027-01-02T00:30:00-05:00"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # Proposed implementation plan
 
-This is a planning baseline for incremental development. Only the documentation and directory scaffold exist today. Later phases describe intended outcomes, not implemented features.
+This is a planning baseline for incremental development. The package/CLI and input-contract/validation chunks of Phase 1 are implemented and tested. File replay, recognition, aggregation, schedule attribution to song plays, and persistence remain. Later phases describe intended outcomes, not implemented features.
 
 ## Initial Python stack
 
-Use one local Python application and introduce dependencies when a phase requires them. Select a supported Python version and record it in `pyproject.toml` when code begins; no runtime version or dependency versions are pinned yet.
+Use one local Python application and introduce dependencies when a phase requires them. `pyproject.toml` declares Python 3.11 or newer, matching the available local interpreter, with setuptools packaging, `tzdata` for portable named-timezone support, and pytest as a development extra. Dependency compatibility ranges are declared; no lockfile has been introduced.
 
 | Need | Proposed starting choice | Reason |
 | --- | --- | --- |

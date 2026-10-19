@@ -4,7 +4,7 @@
 
 This project tracks music and event context at West Coast Swing events. Read `docs/project-overview.md` and `docs/implementation-plan.md` before substantial changes.
 
-The repository is currently a documentation scaffold. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
+The repository implements the Phase 1 package/CLI and input contracts/validation. Read `docs/input-formats.md` before changing these contracts. Build incrementally toward replaying a short prerecorded event sample through a local pipeline. Explain important architectural choices and their tradeoffs, since this is also a learning project. Present a concrete plan before substantial implementation. Do not implement later phases merely because they appear in the roadmap.
 
 ## Architectural rules
 
@@ -35,6 +35,6 @@ The repository is currently a documentation scaffold. Build incrementally toward
 - Prefer small, understandable Python modules and explicit contracts over speculative frameworks or distributed services.
 - Keep external calls out of deterministic tests. Use synthetic recognition responses and small synthetic schedules; make credentialed provider checks opt-in.
 - Test behavior where it matters: timestamps, deduplication, repeated song occurrences, unknown results, schedule boundaries, provenance, and persistence.
-- Run checks appropriate to the change and report what actually ran. No test or build commands exist in this initial scaffold; add documented commands when tooling is introduced.
+- Run checks appropriate to the change and report what actually ran. Install with `.\.venv\Scripts\python.exe -m pip install -e '.[dev]'` and test with `.\.venv\Scripts\python.exe -m pytest -q`. Test the installed package rather than injecting `src/` into the Python path.
 - Keep `README.md` accurate as setup and run commands become available. Update the overview and plan when accepted decisions change.
 - Defer heat inference, speech transcription, advanced classification, public deployment, music-service exports, and hardware until their planned phase.

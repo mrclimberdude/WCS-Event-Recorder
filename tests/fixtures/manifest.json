@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source_id": "synthetic-main-001",
+  "event_id": "demo-event",
+  "room_id": "main-ballroom",
+  "audio_path": "sample.wav",
+  "start_time": "2027-01-01T23:59:59-05:00",
+  "timezone": "America/New_York"
+}
