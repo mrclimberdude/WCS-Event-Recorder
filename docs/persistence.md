@@ -83,6 +83,8 @@ Processing commits four kinds of work separately:
 
 Recognition calls and replay waits hold no database write transaction. The coordinator closes upstream iterators on failure or interruption. Expected service errors, no-matches, and unresolved identities can belong to a completed run; they remain distinct evidence categories.
 
+Phase 2 step 1 adds an optional result observer immediately after each raw commit and before derivation. AudD uses it for [live diagnostics](diagnostics.md); expected observer I/O failures do not undo analysis, while unexpected programming errors retain fatal semantics. The separate `diagnose-run` command reads a consistent read-only snapshot and can write an exclusive-create JSON report. It needs no audio, token, or provider call and changes no stored summaries, statuses, or historical exports.
+
 | Stored status | Meaning |
 | --- | --- |
 | `running` | Processing began, but completion is unconfirmed; a killed process or failed terminal write can leave this state |

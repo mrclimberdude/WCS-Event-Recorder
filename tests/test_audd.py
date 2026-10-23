@@ -121,6 +121,41 @@ def test_transport_exception_messages_and_echoed_secrets_are_never_evidence(audi
     assert outcome.raw_evidence["redaction_applied"]
 
 
+@pytest.mark.parametrize("name,kind", [
+    ("ConnectTimeout", "connect_timeout"), ("ReadTimeout", "read_timeout"),
+    ("WriteTimeout", "write_timeout"), ("PoolTimeout", "pool_timeout"),
+    ("TimeoutException", "timeout_unspecified"),
+    ("ConnectError", "connect_error"), ("ReadError", "read_error"),
+    ("WriteError", "write_error"), ("CloseError", "close_error"),
+    ("LocalProtocolError", "local_protocol_error"), ("RemoteProtocolError", "remote_protocol_error"),
+    ("ProxyError", "proxy_error"), ("UnsupportedProtocol", "unsupported_protocol"),
+    ("TransportError", "other_transport_error"), ("custom", "other_transport_error"),
+])
+def test_transport_subtypes_are_captured_without_messages_class_names_or_retries(audio, name, kind):
+    from wcs_event_recorder.diagnostics import DIAGNOSTICS_VERSION
+    calls = []
+    exception = type(TOKEN, (httpx.TransportError,), {}) if name == "custom" else getattr(httpx, name)
+    def fail(request):
+        calls.append(request)
+        raise exception("credential echo " + TOKEN, request=request)
+    with httpx.Client(transport=httpx.MockTransport(fail)) as client:
+        with pytest.raises(RecognitionServiceError) as caught:
+            AudDRecognizer(client, TOKEN).recognize(audio)
+    raw = caught.value.raw_evidence
+    assert raw["category"] == "transport_error" and raw["transport_kind"] == kind
+    assert raw["diagnostics_version"] == DIAGNOSTICS_VERSION
+    assert not caught.value.stop_run and len(calls) == 1
+    assert TOKEN not in str(caught.value) + json.dumps(raw)
+
+
+def test_fatal_service_message_explains_code_without_echoing_upstream_text(audio):
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"status": "error", "error": {"error_code": 900, "error_message": TOKEN}}))) as client:
+        with pytest.raises(RecognitionServiceError) as caught:
+            AudDRecognizer(client, TOKEN).recognize(audio)
+    assert "provider code 900" in str(caught.value) and "same terminal" in str(caught.value)
+    assert caught.value.stop_run and TOKEN not in str(caught.value)
+
+
 def test_credential_in_title_cannot_create_a_redacted_fake_track(audio):
     with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"status": "success", "result": {"title": TOKEN, "artist": "Artist"}}))) as client:
         with pytest.raises(RecognitionServiceError) as caught:

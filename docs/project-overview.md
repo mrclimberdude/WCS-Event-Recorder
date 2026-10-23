@@ -50,7 +50,7 @@ Every detection and derived play must be traceable to a source recording, absolu
 
 ## Recognition and aggregation
 
-Use an existing recognition service rather than building fingerprints. The implemented [AudD adapter](provider-recognition.md) submits exact PCM WAV windows with a 10-second default window/hop and bounded explicit execution. Offline fixtures remain available. The integration is mock-tested; actual recognition quality awaits a private labeled sample and [independent evaluation](evaluation.md).
+Use an existing recognition service rather than building fingerprints. The implemented [AudD adapter](provider-recognition.md) submits exact PCM WAV windows with a 10-second default window/hop and bounded explicit execution. Offline fixtures remain available. A short private competition sample has been processed and [evaluated](evaluation.md), including a documented listener correction of a remix identity. This demonstrates the core flow for two labeled songs, with broader recognition and event reliability still to be measured.
 
 Repeated detections of one continuous song become one `SongPlay`. A later replay of the same track becomes another occurrence. No-match windows, service errors, and uncertainty must be preserved rather than converted into invented detections. Recognition windows provide approximate boundaries; do not claim exact start or end times without supporting evidence.
 

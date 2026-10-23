@@ -6,7 +6,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 steps 1–7 and step 8's offline implementation are complete: file replay, recognition windows, track resolution, provisional plays, SQLite evidence, scheduled context, and run inspection/export now support both fixtures and an explicitly enabled AudD adapter. Upload preview and independent read-only evaluation are available. A real labeled event sample, bounded provider trial, and Phase 1 acceptance review remain pending; mocked tests do not measure acoustic accuracy.
+Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 step 1 adds safe live failure explanations, transport subtypes for new errors, and offline saved-run diagnostics.
 
 ## Setup and verification
 
@@ -85,7 +85,7 @@ Preview a private PCM recording without credentials, network requests, or databa
 .\.venv\Scripts\wcs-recorder.exe plan-audd --manifest data/samples/private/manifest.json --schedule data/samples/private/schedule.json --max-requests 30
 ```
 
-Defaults are 10-second windows/hops and a 30-request ceiling. Invalid or over-budget plans are refused before uploading. With `AUDD_API_TOKEN` configured locally through the environment, the separate `process-audd` command explicitly uploads private windows and saves results through the existing database pipeline. See the [provider guide](docs/provider-recognition.md) for limits, execution commands, errors, and credential handling. No real provider requests have been made during implementation verification.
+Defaults are 10-second windows/hops and a 30-request ceiling. Invalid or over-budget plans are refused before uploading. With `AUDD_API_TOKEN` configured locally through the environment, the separate `process-audd` command explicitly uploads private windows and saves results through the existing database pipeline. See the [provider guide](docs/provider-recognition.md) for limits, execution commands, errors, and credential handling. Automated verification remains offline; the subsequent private baseline trial used explicitly executed provider requests.
 
 Evaluate an existing hash-bound run against independently prepared labels without another provider call:
 
@@ -94,6 +94,14 @@ Evaluate an existing hash-bound run against independently prepared labels withou
 ```
 
 Reports separate recognition, identity, grouping, and estimated timing, with exclusions, censored boundaries, evidence IDs, and honest partial-run coverage. Read the [evaluation guide](docs/evaluation.md) before preparing labels or interpreting metrics. Older runs without a persisted source hash are refused rather than implicitly rebound to a current file.
+
+Troubleshoot saved errors without another upload:
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe diagnose-run --database data/evaluation.sqlite3 --run-id YOUR-RUN-ID --output data/reports/run-diagnostics.json
+```
+
+The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transport subtypes, historical unknowns, and read-only reports. The complete suite currently passes 694 tests; automated provider checks remain mocked.
 
 ## Start here
 
@@ -107,11 +115,14 @@ Reports separate recognition, identity, grouping, and estimated timing, with exc
 - [Schedule attribution](docs/attribution.md): expected session/DJ intervals, uncertainty, frame boundaries, migration, and version-3 export.
 - [Provider recognition](docs/provider-recognition.md): offline upload planning, explicit AudD execution, budgets, privacy, errors, and verification.
 - [Evaluation](docs/evaluation.md): independent hash-bound labels and read-only recognition/identity/grouping/timing reports.
+- [Diagnostics](docs/diagnostics.md): actionable recognition errors, safe transport details, and read-only troubleshooting without additional requests.
 - [Step 4 plan](docs/phase-1-step-4-plan.md): original implementation assessment and completed step 4 design.
 - [Step 5 plan](docs/phase-1-step-5-plan.md): original reassessment and implemented track-resolution/song-play design.
 - [Step 6 plan](docs/phase-1-step-6-plan.md): original reassessment and implemented SQLite persistence design.
 - [Step 7 plan](docs/phase-1-step-7-plan.md): original reassessment and implemented schedule attribution/migration design.
-- [Step 8 plan](docs/phase-1-step-8-plan.md): implemented offline provider/evaluation design and remaining private-sample acceptance gate.
+- [Step 8 plan](docs/phase-1-step-8-plan.md): implemented provider/evaluation design, completed private baseline trial, and remaining acceptance limitations.
+- [Phase 2, step 1 plan](docs/phase-2-step-1-plan.md): implemented safe failure diagnostics, live explanations, and read-only saved-run troubleshooting.
+- [Phase 2, step 2 plan](docs/phase-2-step-2-plan.md): proposed offline evidence reprocessing, explicit lineage, frozen catalog inputs, comparison, and verification.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -133,11 +144,14 @@ Reports separate recognition, identity, grouping, and estimated timing, with exc
 |   |-- attribution.md
 |   |-- provider-recognition.md
 |   |-- evaluation.md
+|   |-- diagnostics.md
 |   |-- phase-1-step-4-plan.md
 |   |-- phase-1-step-5-plan.md
 |   |-- phase-1-step-6-plan.md
 |   |-- phase-1-step-7-plan.md
-|   `-- phase-1-step-8-plan.md
+|   |-- phase-1-step-8-plan.md
+|   |-- phase-2-step-1-plan.md
+|   `-- phase-2-step-2-plan.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/

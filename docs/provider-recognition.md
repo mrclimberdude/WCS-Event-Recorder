@@ -1,6 +1,6 @@
 # AudD recognition and bounded uploads
 
-Phase 1 step 8 adds a real-provider path behind the existing `Recognizer` interface. `plan-audd` stays offline; `process-audd` explicitly uploads private audio windows. The adapter and complete pipeline are verified with mocked HTTP responses. A private labeled event recording has not yet been processed against a real account, so Phase 1 acceptance remains pending.
+Phase 1 step 8 adds a real-provider path behind the existing `Recognizer` interface. `plan-audd` stays offline; `process-audd` explicitly uploads private audio windows. In addition to mocked verification, a bounded private competition recording has now been processed and evaluated. The two-song baseline demonstrates the core flow; unverified bumpers and broader acceptance limitations remain open. Phase 2 step 1 adds [safe live explanations and offline diagnostics](diagnostics.md).
 
 ## Preview a private recording
 
@@ -75,6 +75,8 @@ A fatal service error first yields and commits the current raw error result, the
 
 Evidence includes HTTP status, whitelisted response headers (`content-type`, `retry-after`, `x-request-id`), elapsed time, versions, and the complete parsed valid JSON response within a 1 MiB bound, including unknown fields. Credential-bearing fields and exact token occurrences are redacted, with `redaction_applied` recorded. No request body, WAV, or token is intentionally persisted. HTTP transport debug logging is suppressed even with `--verbose`.
 
+New evidence/configuration also declares `recognition_diagnostics_v1`; transport failures preserve controlled exception subtypes without exception text. Expected service messages explain safe codes/actions, and live error logs follow raw commits. `diagnose-run` interprets old and new evidence without another provider call. Legacy generic transport errors keep their subtype unavailable. See the [diagnostics guide](diagnostics.md) for partial states, credential scope, report output, and billing uncertainty.
+
 Malformed bodies retain size and a SHA-256 digest, without arbitrary body text. Oversized bodies retain capped size, a prefix digest, and an omission marker; `response_truncated` is explicit. This refines the original preview proposal because partial/escaped credentials in malformed text cannot be reliably redacted. Raw evidence is structured and may be redacted, not a promise of byte-identical HTTP capture.
 
 ## Verification and remaining trial
@@ -83,4 +85,4 @@ The full installed-package suite passed **598 tests**, including **109 new provi
 
 Adapter tests inspect the actual multipart request through `httpx.MockTransport`. They cover nonzero PCM at multiple sample widths/channels, limits, budgets, timeouts, no retries/redirects, normalization, fatal/recoverable errors, malformed/oversized bodies, cleanup, and credential redaction. Mocked CLI tests exercise the installed pipeline through SQLite, inspection/export/evaluation, pacing/chunk equivalence, interruption, and failure after earlier play/context commits. Automated tests make no real provider calls.
 
-The remaining acceptance work is a private labeled 3–5 minute sample, an explicitly executed bounded account trial, and a saved [evaluation report](evaluation.md) with an honest acceptance review. Mocked success demonstrates integration behavior and cannot establish acoustic accuracy. See the [step 8 plan](phase-1-step-8-plan.md) for both completion gates.
+The subsequent real baseline saved all 29 planned outcomes: 22 matches, 4 no-matches, and 3 recoverable transport errors. After the listener independently corrected one reference to the recognized remix, 13 eligible windows contained 11 correct matches and 2 transport errors; the other 16 windows remain unscored. Original evidence and label/report revisions stay private under `data/`. These observations do not establish general acoustic accuracy. Remaining review concerns include bumper identities/fragmentation and desired timing quality. See the [evaluation guide](evaluation.md), [step 8 plan](phase-1-step-8-plan.md), and [Phase 2 diagnostics plan](phase-2-step-1-plan.md).

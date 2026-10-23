@@ -12,6 +12,7 @@ from time import monotonic
 
 import httpx
 
+from .diagnostics import DIAGNOSTICS_VERSION, failure_message
 from .inputs import InputValidationError
 from .models import RecognitionCandidate, RecognitionOutcome, RecognitionStatus
 from .recognition import RecognitionServiceError
@@ -45,7 +46,7 @@ class AudDSettings:
         return httpx.Timeout(connect=self.connect_timeout, read=self.read_timeout, write=self.write_timeout, pool=self.pool_timeout)
 
     def configuration(self):
-        return {**asdict(self), "adapter_version": ADAPTER_VERSION, "normalization_version": NORMALIZATION_VERSION, "endpoint": ENDPOINT, "automatic_retries": 0}
+        return {**asdict(self), "adapter_version": ADAPTER_VERSION, "normalization_version": NORMALIZATION_VERSION, "diagnostics_version": DIAGNOSTICS_VERSION, "endpoint": ENDPOINT, "automatic_retries": 0}
 
 
 def upload_plan(source, config, settings):
@@ -121,6 +122,21 @@ def _finite_float(value):
     return number
 
 
+def _transport_kind(exc):
+    for name, kind in (
+        ("ConnectTimeout", "connect_timeout"), ("ReadTimeout", "read_timeout"),
+        ("WriteTimeout", "write_timeout"), ("PoolTimeout", "pool_timeout"),
+        ("TimeoutException", "timeout_unspecified"),
+        ("ConnectError", "connect_error"), ("ReadError", "read_error"),
+        ("WriteError", "write_error"), ("CloseError", "close_error"),
+        ("LocalProtocolError", "local_protocol_error"), ("RemoteProtocolError", "remote_protocol_error"),
+        ("ProxyError", "proxy_error"), ("UnsupportedProtocol", "unsupported_protocol"),
+    ):
+        if isinstance(exc, getattr(httpx, name)):
+            return kind
+    return "other_transport_error"
+
+
 class AudDRecognizer:
     provider = "audd"
 
@@ -154,12 +170,13 @@ class AudDRecognizer:
         wav = encode_window(audio)
         if self.requests_sent >= self.settings.max_requests:
             raise InputValidationError("AudD request budget exhausted before upload")
-        evidence = {"adapter_version": ADAPTER_VERSION, "normalization_version": NORMALIZATION_VERSION}
+        evidence = {"adapter_version": ADAPTER_VERSION, "normalization_version": NORMALIZATION_VERSION, "diagnostics_version": DIAGNOSTICS_VERSION}
         started = monotonic()
 
         def failure(category, *, stop=False):
             evidence.update(category=category, stop_run=stop, elapsed_seconds=max(0, monotonic() - started))
-            raise RecognitionServiceError(f"AudD {category}", self._safe_evidence(evidence), stop_run=stop) from None
+            safe = self._safe_evidence(evidence)
+            raise RecognitionServiceError(failure_message(self.provider, safe), safe, stop_run=stop) from None
 
         self.requests_sent += 1
         try:
@@ -200,7 +217,8 @@ class AudDRecognizer:
                 status = response.status_code
         except httpx.DecodingError:
             failure("response_decoding_error", stop=True)
-        except httpx.TransportError:
+        except httpx.TransportError as exc:
+            evidence["transport_kind"] = _transport_kind(exc)
             failure("transport_error")
         evidence["elapsed_seconds"] = max(0, monotonic() - started)
         if status in {401, 403, 429} or 300 <= status < 500:

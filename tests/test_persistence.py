@@ -504,3 +504,58 @@ def test_export_write_failure_preserves_analysis_and_leaves_no_success_record(da
         export_run(store.db.path, store.run_id, path)
     assert "run_completed" not in path.read_text()
     assert list(store.records()) == before
+
+
+def test_result_observer_runs_after_raw_commit_before_resolution(database_run, demo_results):
+    observed = []
+    def observer(result):
+        assert not database_run.db.connection.in_transaction
+        with Database(database_run.db.path, readonly=True) as db:
+            saved = RunStore(db, database_run.run_id)
+            assert saved.results()[-1] == result
+            if result.candidate:
+                with pytest.raises(KeyError):
+                    saved.resolution(result.result_id)
+        observed.append(result.result_id)
+    persist_results(demo_results, database_run, on_result=observer)
+    assert observed == [r.result_id for r in demo_results]
+
+
+def test_failed_raw_commit_never_notifies_observer(database_run, demo_results, monkeypatch):
+    observed = []
+    def fail(_):
+        raise StorageError("raw write failed")
+    monkeypatch.setattr(database_run, "result", fail)
+    with pytest.raises(StorageError, match="raw write failed"):
+        persist_results(demo_results, database_run, on_result=observed.append)
+    assert observed == [] and database_run.results() == []
+
+
+@pytest.mark.parametrize("exception", [OSError("diagnostic output unavailable"), BrokenPipeError()])
+def test_optional_observer_io_failure_does_not_fail_analysis(database_run, demo_results, exception):
+    def observer(_):
+        raise exception
+    persist_results(demo_results, database_run, on_result=observer)
+    assert database_run.row()["status"] == "completed" and len(database_run.plays()) == 3
+
+
+def test_observer_io_failure_does_not_mask_original_fatal_error(database_run, demo_results):
+    from wcs_event_recorder.recognition import RecognitionStopped
+    error = replace(demo_results[0], status=RecognitionStatus.ERROR, candidate=None, error="saved service failure")
+    def results():
+        yield error
+        raise RecognitionStopped("original fatal error")
+    def observer(_):
+        raise OSError("diagnostic output unavailable")
+    with pytest.raises(RecognitionStopped, match="original fatal error"):
+        persist_results(results(), database_run, on_result=observer)
+    assert database_run.results() == [error] and database_run.row()["status"] == "failed"
+    assert database_run.row()["terminal_error"] == "original fatal error"
+
+
+def test_unexpected_observer_programming_failure_remains_fatal_after_raw_commit(database_run, demo_results):
+    def observer(_):
+        raise RuntimeError("observer programming failure")
+    with pytest.raises(RuntimeError, match="observer programming failure"):
+        persist_results(demo_results, database_run, on_result=observer)
+    assert database_run.results() == demo_results[:1] and database_run.row()["status"] == "failed"

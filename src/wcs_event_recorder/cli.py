@@ -15,6 +15,7 @@ from .analysis import aggregate_results, new_run, recognize_windows
 from .aggregation import AggregationPolicy, SongPlayAggregator
 from .attribution import AttributionPolicy
 from .audd import AudDRecognizer, AudDSettings, create_client, source_sha256, upload_plan
+from .diagnostics import DiagnosticError, diagnose_run, diagnostic_lines, format_result_diagnostic, result_diagnostic
 from .evaluation import EvaluationError, evaluate_run
 from .inputs import InputValidationError, load_json, load_recording, parse_schedule, validate_inputs, validate_schedule
 from .logging_config import configure_logging
@@ -132,6 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     evaluation.add_argument("--labels", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    diagnosis = commands.add_parser("diagnose-run", help="explain saved recognition failures offline; no provider calls")
+    diagnosis.add_argument("--database", type=Path, required=True)
+    diagnosis.add_argument("--run-id", required=True)
+    diagnosis.add_argument("--output", type=Path, help="create a new JSON diagnostic report")
+    diagnosis.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
@@ -145,6 +151,13 @@ def main(argv: list[str] | None = None) -> int:
             return _process_command(args, process_parser)
         if args.command in {"plan-audd", "process-audd"}:
             return _audd_command(args, parser)
+        if args.command == "diagnose-run":
+            report = diagnose_run(args.database, args.run_id, args.output)
+            for line in diagnostic_lines(report):
+                print(line)
+            if args.output:
+                print(f"Report: {args.output}")
+            return 0
         if args.command == "evaluate-run":
             report = evaluate_run(args.database, args.run_id, args.labels, args.output)
             print(f"Evaluation: {report['run_id']}; status: {report['run_status']}; observed/planned windows: {report['observed_windows']}/{report['planned_windows']}")
@@ -154,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"list-runs", "show-run", "export-run"}:
             return _stored_command(args)
         return _validate_command(args)
-    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError) as exc:
+    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError) as exc:
         logger.error("%s", exc, exc_info=args.verbose)
         return 1
     except KeyboardInterrupt:
@@ -266,7 +279,7 @@ def _audd_command(args, parser):
         return 0
     token = os.environ.get("AUDD_API_TOKEN", "").strip()
     if not token:
-        raise InputValidationError("AUDD_API_TOKEN is required for provider execution")
+        raise InputValidationError("AUDD_API_TOKEN is not available to this process. Set it in the same terminal that launches process-audd; presence alone does not validate the token.")
     configuration.update(provider="audd", **settings.configuration(), planned_requests=plan["planned_requests"], wav_bytes_per_request=plan["wav_bytes_per_request"], source_audio_sha256=source_sha256(source.audio_path))
     with create_client(settings) as client:
         recognizer = AudDRecognizer(client, token, settings)
@@ -294,16 +307,38 @@ def _database_process(args, source, frames_per_chunk, config, recognizer, config
         def report_play(play, track):
             _print_play(play, track, source)
             _print_context(store.attribution(play.play_id), source)
+        def report_result(result):
+            item = result_diagnostic(result, source, config, configuration)
+            if item is not None:
+                logger.log(logging.ERROR if item["stop_run"] else logging.WARNING, "%s", format_result_diagnostic(item))
         try:
-            summary = persist_results(results, store, on_play=report_play)
+            summary = persist_results(results, store, on_play=report_play, on_result=report_result if recognizer.provider == "audd" else None)
         finally:
             if "planned_requests" in configuration:
-                print(f"Requests attempted: {recognizer.requests_sent}/{configuration['planned_requests']} planned; ceiling: {configuration['max_requests']}", flush=True)
+                try:
+                    print(f"Requests attempted: {recognizer.requests_sent}/{configuration['planned_requests']} planned; ceiling: {configuration['max_requests']} (process attempts; provider billing unknown)", flush=True)
+                except OSError:
+                    pass
+                _diagnostic_hint(db.path, run.run_id)
         if not sum(summary["counts"].values()):
             logger.warning("No complete recognition windows; recording is shorter than --window-seconds")
         print(f"Run {run.run_id}: completed", flush=True)
         _print_summary(summary)
+        if recognizer.provider == "audd" and summary["counts"]["error"]:
+            try:
+                print(f"Completed with {summary['counts']['error']} recognition service error(s); no automatic retries were issued.")
+            except OSError:
+                pass
     return 0
+
+
+def _diagnostic_hint(database, run_id):
+    def quote(value):
+        return "'" + str(value).replace("'", "''") + "'"
+    try:
+        print(f"Inspect saved diagnostics (offline): .\\.venv\\Scripts\\wcs-recorder.exe diagnose-run --database {quote(database)} --run-id {quote(run_id)}", flush=True)
+    except OSError:
+        pass
 
 
 def _stored_command(args):
@@ -327,7 +362,10 @@ def _stored_command(args):
             print("Schedule attribution not produced (legacy run)" if store.attributor is None else f"Schedule attribution: {store.attribution_policy.version}; basis: schedule_only")
             if row["terminal_error"] is not None:
                 print(f"Error: {row['terminal_error']}")
-            _print_summary(store.summary())
+            summary = store.summary()
+            _print_summary(summary)
+            if summary["counts"]["error"]:
+                _diagnostic_hint(db.path, store.run_id)
             for play in store.plays():
                 track = store.resolution(play.recognition_result_ids[0]).track
                 _print_play(play, track, store.source)

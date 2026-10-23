@@ -15,7 +15,7 @@ from .storage import Database, SQLiteTrackCatalog, StorageError
 logger = logging.getLogger(__name__)
 
 
-def persist_results(results, store: RunStore, *, on_play=None):
+def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
     resolver = TrackResolver(SQLiteTrackCatalog(store.db), store.resolution_policy)
     aggregator = SongPlayAggregator(store.source, store.config, store.run_id, store.policy)
     iterator = iter(results)
@@ -26,6 +26,13 @@ def persist_results(results, store: RunStore, *, on_play=None):
                 cleanup.callback(close)
             for result in iterator:
                 store.result(result)
+                if on_result is not None:
+                    try:
+                        on_result(result)
+                    except OSError:
+                        # Optional diagnostic output must not undo committed
+                        # analysis or replace the original failure.
+                        pass
                 resolution = store.resolve(result, resolver) if result.status == RecognitionStatus.MATCH else None
                 for play in aggregator.accept(result, resolution):
                     store.play(play)

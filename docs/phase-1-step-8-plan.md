@@ -1,6 +1,6 @@
 # Phase 1 reassessment and step 8 implementation plan
 
-Status: the offline implementation-ready gate is complete; the private labeled provider trial and Phase 1 acceptance review remain pending. The original assessment below followed step 7's 489-test baseline. The implemented behavior and current verification are documented in the [provider guide](provider-recognition.md) and [evaluation guide](evaluation.md). No real provider requests were made during implementation.
+Status: implementation and a bounded private provider trial are complete. The listener corrected one reference remix identity; revised evaluation is saved alongside the original evidence. Acceptance limitations and unverified bumpers remain open. The original design below followed step 7's 489-test baseline and is retained as historical planning context. See the [provider guide](provider-recognition.md), [evaluation guide](evaluation.md), and proposed [Phase 2 diagnostics plan](phase-2-step-1-plan.md). Automated implementation verification made no real provider requests; the subsequent private trial was explicitly executed.
 
 Implementation verification: 598 tests passed, including 109 new adapter/CLI/evaluation cases. Separate mocked accelerated/paced runs preserved two tracks, three plays, four context segments, 23 export records, deterministic read-only reports, unchanged source audio, and sanitized failure evidence. The original design below is retained with the implemented malformed-body privacy refinement noted in 8b.
 
@@ -9,17 +9,17 @@ Implementation verification: 598 tests passed, including 109 new adapter/CLI/eva
 | Phase 1 step | State |
 | --- | --- |
 | 1. Package, CLI, logging, tests | Complete |
-| 2. Input contracts and validation | Implemented; private labeled evaluation sample still pending |
+| 2. Input contracts and validation | Complete; private sample prepared and evaluated |
 | 3. File reading and accelerated/paced replay | Complete |
 | 4. Recognition windows and fixture responses | Complete |
 | 5. Track resolution and provisional song plays | Complete |
 | 6. SQLite evidence, persistent catalog, inspection/export | Complete |
 | 7. Scheduled session/DJ attribution and migration | Complete |
-| 8. Real-provider integration and evaluation | Offline implementation complete; real private-sample trial/acceptance pending |
+| 8. Real-provider integration and evaluation | Implementation/private baseline complete; acceptance limitations remain open |
 
 The local fixture path already processes audio into an inspectable database with canonical tracks, repeat occurrences, scheduled context, and source/evidence relationships. The midnight demo preserves three plays with four context segments. New database runs export version 3; migration preserves legacy version-2 histories and standalone version-1/version-2 commands.
 
-The adapter, bounded explicit execution, and independent evaluator described in this design are now implemented. The remaining Phase 1 work is a measured run on a private labeled recording and an acceptance review. Implemented chunk counts are not a percentage estimate of remaining effort.
+The adapter, bounded explicit execution, and independent evaluator described in this design are implemented and have processed a private labeled recording. The baseline supports the core proof of concept; remaining acceptance discussion concerns unscored bumpers, timing requirements, and limits of the short sample. Implemented chunk counts are not a percentage estimate of remaining effort.
 
 ## Reassessment from the actual code
 

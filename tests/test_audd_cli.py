@@ -193,3 +193,40 @@ def test_mocked_pacing_and_chunk_sizes_preserve_media_and_context(arguments, moc
         def semantics(store):
             return [(p.track_id, p.window, len(p.recognition_result_ids), p.closure_reason, store.attribution(p.play_id).segments) for p in store.plays()]
         assert semantics(stores[0]) == semantics(stores[1])
+
+
+def test_live_recoverable_error_has_saved_span_timeout_and_completion_guidance(arguments, mock_provider, capsys):
+    def respond(request, index):
+        if index == 1:
+            raise httpx.ReadTimeout(TOKEN, request=request)
+        return httpx.Response(200, json={"status": "success", "result": None})
+    calls, _ = mock_provider(respond)
+    assert cli.main(arguments) == 0 and len(calls) == 8
+    output = capsys.readouterr()
+    assert "Read timed out" in output.err and "configured timeout 30s" in output.err
+    assert "window 2" in output.err and "[00:00.250, 00:00.500)" in output.err
+    assert "Error result saved" in output.err and TOKEN not in output.out + output.err
+    assert "Completed with 1 recognition service error" in output.out and "diagnose-run" in output.out
+    with Database(database_path(arguments), readonly=True) as db:
+        store = RunStore(db, db.execute("SELECT run_id FROM analysis_runs").fetchone()[0])
+        assert store.results()[1].result_id in output.err
+        assert store.results()[1].raw_evidence["transport_kind"] == "read_timeout"
+
+
+def test_missing_token_explains_process_scope_without_validation(arguments, monkeypatch, capsys):
+    monkeypatch.delenv("AUDD_API_TOKEN", raising=False)
+    assert cli.main(arguments) == 1
+    text = capsys.readouterr().err
+    assert "same terminal" in text and "presence alone does not validate" in text
+    assert not database_path(arguments).exists()
+
+
+def test_live_optional_diagnostic_io_failure_does_not_stop_processing(arguments, mock_provider, monkeypatch):
+    mock_provider(lambda *_: (_ for _ in ()).throw(httpx.ReadTimeout(TOKEN)))
+    def fail(*_):
+        raise BrokenPipeError()
+    monkeypatch.setattr(cli.logger, "log", fail)
+    assert cli.main(arguments) == 0
+    with Database(database_path(arguments), readonly=True) as db:
+        store = RunStore(db, db.execute("SELECT run_id FROM analysis_runs").fetchone()[0])
+        assert store.row()["status"] == "completed" and store.summary()["counts"]["error"] == 8
