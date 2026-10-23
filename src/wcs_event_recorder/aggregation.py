@@ -34,7 +34,10 @@ class _OpenPlay:
 
 
 class SongPlayAggregator:
-    def __init__(self, source: RecordingSource, config: WindowConfig, run_id: str, policy: AggregationPolicy):
+    def __init__(self, source: RecordingSource, config: WindowConfig, run_id: str, policy: AggregationPolicy, *, analysis_stage="live_provisional"):
+        if analysis_stage not in {"live_provisional", "offline_reprocessed"}:
+            raise ValueError("unsupported analysis stage")
+        self.analysis_stage = analysis_stage
         self.source, self.config, self.run_id, self.policy = source, config, run_id, policy
         self._received = 0
         self._seen: set[str] = set()
@@ -61,7 +64,7 @@ class SongPlayAggregator:
             AudioWindow(self.source.source_id, active.start_frame, active.end_frame - active.start_frame),
             tuple(active.support), aggregation_policy=self.policy.version, closure_reason=reason,
             closing_result_id=closing_result_id, bridged_result_ids=tuple(active.bridged),
-            uncertainty_flags=tuple(sorted(flags)), overlapping_play_ids=active.overlaps,
+            uncertainty_flags=tuple(sorted(flags)), overlapping_play_ids=active.overlaps, analysis_stage=self.analysis_stage,
         )
         self._open = None
         self._last_closed = play

@@ -7,6 +7,7 @@ from pathlib import Path
 from .aggregation import SongPlayAggregator
 from .codecs import json_text
 from .models import RecognitionStatus
+from .lineage import FrozenTrackCatalog, load_catalog_snapshot
 from .resolution import TrackResolver
 from .run_output import RunOutputError
 from .run_store import RunStore
@@ -16,14 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
-    resolver = TrackResolver(SQLiteTrackCatalog(store.db), store.resolution_policy)
-    aggregator = SongPlayAggregator(store.source, store.config, store.run_id, store.policy)
     iterator = iter(results)
     try:
         with ExitStack() as cleanup:
             close = getattr(iterator, "close", None)
             if close is not None:
                 cleanup.callback(close)
+            catalog = (FrozenTrackCatalog(store.db, store.run_id, load_catalog_snapshot(store.db, store.derivation["catalog_snapshot_id"]))
+                       if store.derivation is not None else SQLiteTrackCatalog(store.db))
+            resolver = TrackResolver(catalog, store.resolution_policy)
+            aggregator = SongPlayAggregator(store.source, store.config, store.run_id, store.policy, analysis_stage=store.analysis_stage)
             for result in iterator:
                 store.result(result)
                 if on_result is not None:

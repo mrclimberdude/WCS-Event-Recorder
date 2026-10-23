@@ -6,7 +6,9 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 ## Current status
 
-Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 step 1 adds safe live failure explanations, transport subtypes for new errors, and offline saved-run diagnostics.
+Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 steps 1/2 add safe diagnostics, offline reprocessing with preserved evidence and frozen catalog inputs, and comparison of original/revised conclusions.
+
+Next is bounded recovery of selected saved errors, followed by interrupted-analysis recovery from saved evidence and missing-window recognition. The remaining Phase 2 plan includes reviewed identity/schedule revisions, longer-recording resource checks, extensions to existing comparison reports, and validation throughout. See the [overall roadmap](docs/implementation-plan.md) for the six project phases, current statuses, and recovery milestones; these recovery/correction features are planned.
 
 ## Setup and verification
 
@@ -101,12 +103,21 @@ Troubleshoot saved errors without another upload:
 .\.venv\Scripts\wcs-recorder.exe diagnose-run --database data/evaluation.sqlite3 --run-id YOUR-RUN-ID --output data/reports/run-diagnostics.json
 ```
 
-The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transport subtypes, historical unknowns, and read-only reports. The complete suite currently passes 694 tests; automated provider checks remain mocked.
+The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transport subtypes, historical unknowns, and read-only reports. The complete suite currently passes 780 tests; automated provider checks remain mocked.
+
+## Reprocess saved evidence offline
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe reprocess-run --database data/tracker.sqlite3 --run-id PARENT-RUN-ID
+.\.venv\Scripts\wcs-recorder.exe compare-runs --database data/tracker.sqlite3 --baseline-run-id PARENT-RUN-ID --candidate-run-id CHILD-RUN-ID --output data/reports/comparison.json
+```
+
+Reprocessing creates a separate analysis from a completed run, preserves its saved outcomes/timeline/schedule, and makes zero provider requests. No source files or token are required. Optional `--max-gap-seconds` changes grouping. The child has explicit evidence links, a frozen catalog seed, and unreviewed offline plays/context; the original stays inspectable. See the [reprocessing guide](docs/reprocessing.md) for comparisons, schema-3 migration, version-4 child exports, failure behavior, and private validation results.
 
 ## Start here
 
 - [Project overview](docs/project-overview.md): goals, architecture, data model, and constraints.
-- [Implementation plan](docs/implementation-plan.md): proposed Python stack, phases, and Phase 1 acceptance criteria.
+- [Implementation plan](docs/implementation-plan.md): end-to-end roadmap, implementation status, refined Phase 2 milestones, and acceptance criteria.
 - [Input formats](docs/input-formats.md): manifest and schedule schemas, time rules, and validation behavior.
 - [File replay](docs/replay.md): bounded WAV reading, replay modes, and manual verification.
 - [Recognition](docs/recognition.md): window assembly, fixture recognition, and saved run evidence.
@@ -116,13 +127,14 @@ The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transp
 - [Provider recognition](docs/provider-recognition.md): offline upload planning, explicit AudD execution, budgets, privacy, errors, and verification.
 - [Evaluation](docs/evaluation.md): independent hash-bound labels and read-only recognition/identity/grouping/timing reports.
 - [Diagnostics](docs/diagnostics.md): actionable recognition errors, safe transport details, and read-only troubleshooting without additional requests.
+- [Offline reprocessing](docs/reprocessing.md): saved-outcome reuse, lineage, frozen catalog resolution, parent/child comparison, and compatibility.
 - [Step 4 plan](docs/phase-1-step-4-plan.md): original implementation assessment and completed step 4 design.
 - [Step 5 plan](docs/phase-1-step-5-plan.md): original reassessment and implemented track-resolution/song-play design.
 - [Step 6 plan](docs/phase-1-step-6-plan.md): original reassessment and implemented SQLite persistence design.
 - [Step 7 plan](docs/phase-1-step-7-plan.md): original reassessment and implemented schedule attribution/migration design.
 - [Step 8 plan](docs/phase-1-step-8-plan.md): implemented provider/evaluation design, completed private baseline trial, and remaining acceptance limitations.
 - [Phase 2, step 1 plan](docs/phase-2-step-1-plan.md): implemented safe failure diagnostics, live explanations, and read-only saved-run troubleshooting.
-- [Phase 2, step 2 plan](docs/phase-2-step-2-plan.md): proposed offline evidence reprocessing, explicit lineage, frozen catalog inputs, comparison, and verification.
+- [Phase 2, step 2 plan](docs/phase-2-step-2-plan.md): implemented offline evidence reprocessing, explicit lineage, frozen catalog inputs, comparison, and verification.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -145,6 +157,7 @@ The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transp
 |   |-- provider-recognition.md
 |   |-- evaluation.md
 |   |-- diagnostics.md
+|   |-- reprocessing.md
 |   |-- phase-1-step-4-plan.md
 |   |-- phase-1-step-5-plan.md
 |   |-- phase-1-step-6-plan.md

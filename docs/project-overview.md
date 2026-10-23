@@ -16,6 +16,14 @@ Classifications may include competition, bumper, social, awards, showcase, works
 
 Take a prerecorded event sample and process it end-to-end as if it were happening live. Start with a short single-room sample and local database, then expand the same pipeline toward a full event and optional outputs. See the [implementation plan](implementation-plan.md) for the proposed phase boundaries and measurable acceptance criteria.
 
+## Roadmap and current priorities
+
+The project proceeds from the implemented short-recording proof of concept through reliable local recovery/correction (Phase 2), attendee/operational views (Phase 3), optional playlists (Phase 4), richer event inference (Phase 5), and independent live capture/event trials (Phase 6).
+
+Phase 2 diagnostics and offline reprocessing are complete, including a comparison foundation. The next work is staged: selected-error retries from completed runs, then recovery of interrupted derivation from saved evidence, then recognition of missing windows. Recovery will retain attempts, explicitly select the outcome used for each source/frame span, verify audio before new uploads, and preserve original runs. The first bounded acceptance target is three selected error windows with at most three new requests and reuse of the other 26 saved outcomes, developed with mocks before separately enabled provider execution.
+
+Later Phase 2 work adds explicit identity/schedule corrections against saved catalog inputs and immutable schedule revisions, profiles longer-recording resource costs before large trials, and extends existing reports as each feature lands. Targeted validation accompanies each chunk, followed by broader labeled/longer trials. The [overall roadmap](implementation-plan.md) records statuses, delivery milestones, and Phase 2 completion criteria.
+
 ## Architecture
 
 ```text
@@ -39,6 +47,8 @@ Saved recordings + evidence
 ```
 
 Capture must continue independently of analysis and external-service availability. Start with a simple local pipeline; this conceptual separation does not require a message broker, separate services, or cloud infrastructure.
+
+Phase 2 now implements [offline reprocessing](reprocessing.md) of completed saved recognition outcomes. Revised analyses retain explicit parent/result links, frozen catalog inputs, the original timeline/schedule, and independent comparisons without new uploads. Offline plays/context remain unreviewed estimates. Selective recognition retries and interrupted-run recovery are the next separate step; independent live capture remains Phase 6.
 
 All audio sources should expose the same downstream representation: source identity, event and room, absolute chunk start time, source offset, duration, sample format, and audio content or a retrievable reference. File replay uses media time and a supplied event start time rather than the processing machine's wall clock. Store aware timestamps and retain the event timezone for schedule correlation and display.
 

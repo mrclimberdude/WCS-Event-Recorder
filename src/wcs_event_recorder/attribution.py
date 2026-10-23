@@ -34,7 +34,10 @@ def frame_at_boundary(source, instant: datetime) -> tuple[int, bool]:
 
 
 class ScheduleAttributor:
-    def __init__(self, source, run_id, snapshot_id, schedule, policy=AttributionPolicy()):
+    def __init__(self, source, run_id, snapshot_id, schedule, policy=AttributionPolicy(), *, analysis_stage="live_provisional"):
+        if analysis_stage not in {"live_provisional", "offline_reprocessed"}:
+            raise ValueError("unsupported analysis stage")
+        self.analysis_stage = analysis_stage
         if (snapshot_id is None) != (schedule is None):
             raise ValueError("schedule and snapshot identity must both be supplied or absent")
         self.source, self.run_id, self.snapshot_id, self.schedule, self.policy = source, run_id, snapshot_id, schedule, policy
@@ -98,7 +101,7 @@ class ScheduleAttributor:
         segments, quantized = self.partition(play)
         return PlayAttribution(
             str(uuid4()), self.run_id, play.play_id, play.window, self.snapshot_id, self.policy.version,
-            self.policy.boundary_policy, self.schedule.source if self.schedule else None, segments, quantized,
+            self.policy.boundary_policy, self.schedule.source if self.schedule else None, segments, quantized, analysis_stage=self.analysis_stage,
         )
 
     def validate(self, attribution, play):
@@ -109,5 +112,6 @@ class ScheduleAttributor:
             or attribution.boundary_policy != self.policy.boundary_policy
             or attribution.provenance != (self.schedule.source if self.schedule else None)
             or attribution.segments != segments or attribution.quantized_boundaries != quantized
+            or attribution.analysis_stage != self.analysis_stage or play.analysis_stage != self.analysis_stage
         ):
             raise ValueError("attribution must match its play and immutable schedule snapshot")

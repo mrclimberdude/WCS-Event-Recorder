@@ -443,7 +443,7 @@ class PlayAttribution:
     def __post_init__(self):
         for name in ("attribution_id", "run_id", "play_id", "policy_version", "boundary_policy"):
             _text(getattr(self, name), name)
-        if self.basis != "schedule_only" or self.confidence is not None or self.analysis_stage != "live_provisional":
+        if self.basis != "schedule_only" or self.confidence is not None or self.analysis_stage not in {"live_provisional", "offline_reprocessed"}:
             raise ValueError("schedule attribution is provisional with unknown numeric confidence")
         if self.snapshot_id is None:
             if self.provenance is not None:

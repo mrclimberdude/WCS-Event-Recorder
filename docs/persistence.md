@@ -30,7 +30,7 @@ The A occurrences share one track ID and have different play IDs. The final unkn
 
 `--schedule` is optional. When supplied, its exact validated JSON document is retained with a normalized-content hash, input path, provenance, and run-specific coverage warnings. Warnings do not fail processing. The separate attribution policy now uses the saved document to produce expected session/DJ segments, retaining gaps and conflicts explicitly. Revised schedule documents create different snapshots; repeated session IDs remain scoped to their document.
 
-The database is created if absent. Recognized schema-version-1 databases migrate atomically to version 2 on writable open; read-only inspection keeps either version unchanged. New databases use version 2; unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed.
+The database is created if absent for processing. Recognized schema-version-1/2 databases now migrate atomically to version 3 on writable open; read-only inspection preserves versions 1/2/3. Unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed for fixture processing.
 
 ## Inspect after restarting
 
@@ -47,6 +47,8 @@ Replace `YOUR-RUN-ID` with the printed UUID. Inspection opens an existing databa
 The recording, fixture, and original schedule files are not needed to inspect or export saved metadata. The retained recording is still required to replay the audio referenced by source/frame offsets. No PCM bytes are stored in the database or JSONL.
 
 ## Reprocess into the same database
+
+The file-processing example below creates another independent recognition run. Phase 2's separate [reprocess-run](reprocessing.md) instead reuses completed saved outcomes without opening audio/fixtures or contacting a provider, preserves explicit parent/result links and a frozen catalog seed, and supports comparison. Offline runs have an unreviewed `offline_reprocessed` stage; retries/resumption remain deferred.
 
 Run the same processing command again, optionally changing delivery to paced mode and the chunk size:
 
@@ -98,13 +100,13 @@ No automatic resume or abandoned-run repair is implemented. Rerunning creates a 
 
 ## Database structure and limits
 
-The application identifies its database with a SQLite application ID and `user_version = 2`; database versions are independent of diagnostic versions 1/2/3. Version-1 databases remain readable and migrate atomically only on writable open. Standard-library sqlite3 supplies explicit transactions with foreign keys enabled on every connection, a finite lock timeout, and the default rollback journal. No new runtime dependency is required.
+The application identifies its database with a SQLite application ID and `user_version = 3`; database versions are independent of JSONL versions 1/2/3/4. Versions 1/2 remain readable and migrate atomically only on writable open. Standard-library sqlite3 supplies explicit transactions with foreign keys enabled on every connection, a finite lock timeout, and the default rollback journal. No new runtime dependency is required.
 
-The schema contains `recording_sources`, `schedule_snapshots`, `analysis_runs`, `tracks`, `track_mappings`, `recognition_results`, `track_resolutions`, `resolution_conflicts`, `song_plays`, `play_evidence`, and `play_overlaps`, with `play_attributions`, `context_segments`, and `context_candidates` added in schema 2. Integer source frames are authoritative for media timing. UTC instants and the named event timezone are retained. Processing timestamps are separate.
+The schema contains `recording_sources`, `schedule_snapshots`, `analysis_runs`, `tracks`, `track_mappings`, `recognition_results`, `track_resolutions`, `resolution_conflicts`, `song_plays`, `play_evidence`, and `play_overlaps`, with `play_attributions`, `context_segments`, and `context_candidates` added in schema 2. Schema 3 adds `analysis_catalog_snapshots`, `analysis_derivations`, and `reused_result_links`, and extends the attribution/context graph to permit the offline stage while preserving historical values. Integer source frames are authoritative for media timing. UTC instants and the named event timezone are retained. Processing timestamps are separate.
 
 `play_evidence` preserves ordered support, bridged, and closing roles. One result may close an earlier play and support the next; a supporting detection can belong to only one play. Composite foreign keys prevent cross-run evidence, and application checks preserve compatible resolutions, estimated envelopes, and overlap references. Completion additionally requires every match to have a decision and every resolved detection to support a closed play.
 
-One synchronous pipeline owns a connection. Catalog lookup/update units use a write lock; inspection/export uses a consistent read transaction, which can briefly delay writers under the rollback journal. General parallel workers, retries, migrations beyond the explicit version-1-to-2 upgrade, and resumability are deferred.
+One synchronous pipeline owns a connection. Catalog lookup/update units use a write lock; inspection/export uses a consistent read transaction, which can briefly delay writers under the rollback journal. General parallel workers, retries, migrations beyond the explicit version-1/2-to-3 upgrade, and resumability are deferred. Original exports remain version 2/3; offline-derived exports use version 4 with explicit seed/lineage/origin records. Completion counts reused outcomes separately from new provider requests.
 
 A source ID is bound to its resolved private path, event/room, start/timezone, audio format, and frame count. Conflicting metadata is rejected. Keep source files unchanged: matching metadata does not verify byte identity, and relocation/content-hash workflows are not yet implemented. Audio is neither copied nor embedded by persistence.
 

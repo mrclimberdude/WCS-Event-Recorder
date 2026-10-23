@@ -192,7 +192,20 @@ def format_result_diagnostic(item):
 def build_run_diagnostics(store):
     row, source, config = store.row(), store.source, store.run.configuration
     results = store.results()
-    errors = [result_diagnostic(r, source, store.config, config) for r in results if r.status == RecognitionStatus.ERROR]
+    errors = []
+    for result in results:
+        if result.status != RecognitionStatus.ERROR:
+            continue
+        settings = config
+        origin = None
+        if store.derivation is not None:
+            from .lineage import observation_origin
+            origin = observation_origin(store.db, store.run_id, result.result_id)
+            settings = origin["recognition_configuration"]
+        item = result_diagnostic(result, source, store.config, settings)
+        if origin is not None:
+            item["reused_observation"] = {k: origin[k] for k in ("run_id", "result_id", "processed_at")}
+        errors.append(item)
     counts = Counter({s.value: 0 for s in RecognitionStatus})
     counts.update(r.status.value for r in results)
     planned = store.config.window_count(source.frame_count)
@@ -210,7 +223,7 @@ def build_run_diagnostics(store):
         "No saved recognition error establishes the cause of this incomplete run." if not errors else
         "Processing did not complete. Saved errors do not by themselves establish the terminal cause."
     )
-    return {
+    report = {
         "schema_version": 1, "diagnostics_version": DIAGNOSTICS_VERSION,
         "run_id": store.run_id, "run_status": status, "status_note": note,
         "run_application_version": row["application_version"],
@@ -227,6 +240,12 @@ def build_run_diagnostics(store):
         "provider_error_code_counts": dict(sorted(Counter(str(e["provider_error_code"]) for e in errors if e["provider_error_code"] is not None).items())),
         "errors": errors,
     }
+    if store.derivation is not None:
+        report.update(schema_version=2, analysis_kind="offline_reprocess", parent_run_id=store.derivation["parent_run_id"],
+                      source_hash_provenance=store.derivation["source_hash_provenance"], request_attempts_started=0,
+                      new_provider_requests=0,
+                      coverage_note="Saved outcomes and errors are reused original observations. This offline run made zero provider requests; original billing remains unknown.")
+    return report
 
 
 def diagnose_run(database, run_id, output=None):
@@ -248,6 +267,8 @@ def diagnostic_lines(report):
     yield f"Run {report['run_id']}: {report['run_status']}. {report['status_note']}"
     yield f"Saved outcomes: {report['saved_outcomes']}/{report['planned_windows']} planned windows; errors: {report['error_count']}; windows without a saved result: {report['windows_without_saved_result']}"
     yield f"Outcomes: {report['outcome_counts']}; failure families: {report['failure_family_counts']}"
+    if report.get("analysis_kind") == "offline_reprocess":
+        yield f"Offline analysis; parent: {report['parent_run_id']}; new provider requests: 0; error facts describe original observations."
     yield report["coverage_note"]
     for item in report["errors"]:
         yield format_result_diagnostic(item)

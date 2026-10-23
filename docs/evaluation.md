@@ -76,6 +76,8 @@ Start/end tolerances default to zero and must be nonnegative integers. They excl
 
 Reports use schema 1 and method `independent_window_evaluation_v1`. They include run/provider/configuration, source hash, normalized label-document hash, labeling notes, stored summary, and per-attempt result IDs. `sample_evaluation_complete` means the saved run completed; it does not certify label quality, acoustic reliability, or overall Phase 1 acceptance. Always retain provider and label notes with any quoted metric.
 
+Phase 2 [offline reprocessing](reprocessing.md) retains those schema-1 reports for original runs. Derived runs use schema 2 with the same scoring method, explicit lineage, inherited-not-reverified audio hashes, and zero new requests. `reused_window_outcomes`, `reused_coverage`, and `windows_without_reused_outcome` replace the original attempt/coverage fields; each outcome references its original observation. Saved latency refers to those original requests. Identical saved candidates/labels retain recognition scores, while changed grouping may affect occurrence metrics. These are reused observations rather than additional independent accuracy trials, and missing historical hashes are still refused. The current suite passes 780 tests.
+
 | Layer | Interpretation |
 | --- | --- |
 | Recognition | Judge only windows wholly inside a known song after boundary-tolerance exclusion. Count correct match, wrong match, no-match, error, identity ambiguity, and exclusions separately. |

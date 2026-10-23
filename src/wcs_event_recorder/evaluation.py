@@ -291,7 +291,7 @@ def evaluate_store(store, labels):
     recognized_tracks = {songs[key].track_label_id for key in recognized}
     covered = set(occurrence_plays)
     scored = sum(counts[key] for key in ("correct_match", "wrong_match", "no_match", "error"))
-    return {
+    report = {
         "schema_version": 1, "method": "independent_window_evaluation_v1", "run_id": store.run_id,
         "run_status": row["status"], "sample_evaluation_complete": completed, "provider": config.get("provider"),
         "configuration": dict(config), "source_id": source.source_id, "source_audio_sha256": recorded_hash,
@@ -327,6 +327,20 @@ def evaluate_store(store, labels):
         "ambiguous_aliases": [{"title_key": key[0], "artist_key": key[1], "track_label_ids": sorted(values)} for key, values in sorted(aliases.items()) if len(values) > 1],
         "attempts": attempts,
     }
+    if store.derivation is not None:
+        from .lineage import observation_origin, reuse_link
+        report.update(schema_version=2, analysis_kind="offline_reprocess", derivation=store.derivation,
+                      new_provider_requests=0, source_hash_provenance=store.derivation["source_hash_provenance"],
+                      latency_basis="reused_original_observations", observations_are_independent_new_trials=False)
+        report["windows_without_reused_outcome"] = report.pop("unattempted_windows")
+        report["reused_coverage"] = report.pop("attempted_coverage")
+        report["reused_window_outcomes"] = report.pop("attempts")
+        for item in report["reused_window_outcomes"]:
+            link = reuse_link(store.db, store.run_id, item["result_id"])
+            origin = observation_origin(store.db, store.run_id, item["result_id"])
+            item["parent_result_id"] = link["parent_result_id"]
+            item["original_observation"] = {k: origin[k] for k in ("run_id", "result_id", "processed_at")}
+    return report
 
 
 def evaluate_run(database, run_id, labels_path, output):

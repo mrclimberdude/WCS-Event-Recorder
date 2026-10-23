@@ -16,6 +16,9 @@ from .aggregation import AggregationPolicy, SongPlayAggregator
 from .attribution import AttributionPolicy
 from .audd import AudDRecognizer, AudDSettings, create_client, source_sha256, upload_plan
 from .diagnostics import DiagnosticError, diagnose_run, diagnostic_lines, format_result_diagnostic, result_diagnostic
+from .comparison import ComparisonError, compare_runs, comparison_lines
+from .reprocessing import ReprocessingError, reprocess_run
+from .lineage import derivation, load_catalog_snapshot
 from .evaluation import EvaluationError, evaluate_run
 from .inputs import InputValidationError, load_json, load_recording, parse_schedule, validate_inputs, validate_schedule
 from .logging_config import configure_logging
@@ -138,9 +141,28 @@ def main(argv: list[str] | None = None) -> int:
     diagnosis.add_argument("--run-id", required=True)
     diagnosis.add_argument("--output", type=Path, help="create a new JSON diagnostic report")
     diagnosis.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    reprocessing = commands.add_parser("reprocess-run", help="derive a new analysis from completed saved evidence; no uploads or audio required")
+    reprocessing.add_argument("--database", type=Path, required=True)
+    reprocessing.add_argument("--run-id", required=True, help="completed parent run")
+    reprocessing.add_argument("--max-gap-seconds", type=_nonnegative_seconds)
+    reprocessing.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    comparison = commands.add_parser("compare-runs", help="compare a completed run with its immediate offline child, read-only")
+    comparison.add_argument("--database", type=Path, required=True)
+    comparison.add_argument("--baseline-run-id", required=True)
+    comparison.add_argument("--candidate-run-id", required=True)
+    comparison.add_argument("--output", type=Path)
+    comparison.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command == "reprocess-run":
+            return _reprocess_command(args)
+        if args.command == "compare-runs":
+            for line in comparison_lines(compare_runs(args.database, args.baseline_run_id, args.candidate_run_id, args.output)):
+                print(line)
+            if args.output:
+                print(f"Report: {args.output}")
+            return 0
         if args.command == "replay":
             return _replay_command(args, replay_parser)
         if args.command == "recognize-fixture":
@@ -167,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"list-runs", "show-run", "export-run"}:
             return _stored_command(args)
         return _validate_command(args)
-    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError) as exc:
+    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError, ReprocessingError, ComparisonError) as exc:
         logger.error("%s", exc, exc_info=args.verbose)
         return 1
     except KeyboardInterrupt:
@@ -226,8 +248,9 @@ def _print_play(play, track, source):
 def _print_summary(summary):
     counts = summary["counts"]
     decisions = summary["resolution_counts"]
+    unit = "reused outcome(s)" if "reused_outcomes" in summary else "attempt(s)"
     print(
-        f"Stored: {sum(counts.values())} attempt(s), {counts['match']} match, {counts['no_match']} no_match, {counts['error']} error; "
+        f"Stored: {sum(counts.values())} {unit}, {counts['match']} match, {counts['no_match']} no_match, {counts['error']} error; "
         f"{summary['unique_tracks']} track(s), {summary['song_plays']} play(s); "
         f"resolved: {decisions['resolved']}, unresolved: {decisions['unresolved']}; uncertain plays: {summary['uncertain_plays']}", flush=True,
     )
@@ -341,6 +364,28 @@ def _diagnostic_hint(database, run_id):
         pass
 
 
+def _reprocess_command(args):
+    def created(store):
+        info = store.derivation
+        seed = load_catalog_snapshot(store.db, info["catalog_snapshot_id"])
+        print(f"Database: {store.db.path}\nRun: {store.run_id}; kind: offline_reprocess; stage: {store.analysis_stage}", flush=True)
+        print(f"Parent: {info['parent_run_id']}; source: {store.source.source_id}; schedule snapshot: {store.row()['schedule_snapshot_id'] or 'none'}", flush=True)
+        print(f"Inherited window/hop frames: {store.config.window_frames}/{store.config.hop_frames}; effective gap frames: {store.policy.max_gap_frames}", flush=True)
+        print(f"Catalog: {info['catalog_basis']}; SHA-256: {seed['normalized_sha256']}; overrides: {info['configuration_changes']}", flush=True)
+        print("New provider requests: 0; recognition evidence and any errors are reused", flush=True)
+    result = reprocess_run(args.database, args.run_id, max_gap_seconds=args.max_gap_seconds, on_created=created)
+    print(f"Offline analysis completed: {result['run_id']}; reused outcomes: {result['summary']['reused_outcomes']}; new provider requests: 0", flush=True)
+    _print_summary(result["summary"])
+    try:
+        report = compare_runs(args.database, args.run_id, result["run_id"])
+        for line in comparison_lines(report):
+            print(line)
+    except (ComparisonError, ReprocessingError, StorageError, OSError, ValueError) as exc:
+        logger.error("Offline run %s completed; comparison failed: %s. Rerun compare-runs with the saved parent/child IDs.", result["run_id"], exc)
+        return 1
+    return 0
+
+
 def _stored_command(args):
     if args.command == "export-run":
         export_run(args.database, args.run_id, args.output)
@@ -351,12 +396,16 @@ def _stored_command(args):
             if args.command == "list-runs":
                 rows = db.execute("SELECT run_id, source_id, status, started_at FROM analysis_runs ORDER BY started_at, run_id").fetchall()
                 for row in rows:
-                    print(f"{row['run_id']}: {row['status']}; source: {row['source_id']}; started: {row['started_at']}")
+                    info = derivation(db, row["run_id"])
+                    suffix = f"; kind: offline_reprocess; parent: {info['parent_run_id']}" if info else ""
+                    print(f"{row['run_id']}: {row['status']}; source: {row['source_id']}; started: {row['started_at']}" + suffix)
                 print(f"{len(rows)} run(s)")
                 return 0
             store = RunStore(db, args.run_id)
             row = store.row()
             print(f"Run {store.run_id}: {row['status']}" + (" (completion unconfirmed)" if row['status'] == 'running' else ""))
+            if store.derivation is not None:
+                print(f"Kind: offline_reprocess; stage: {store.analysis_stage}; parent: {store.derivation['parent_run_id']}; new provider requests: 0")
             print(f"Source: {store.source.source_id}; event: {store.source.event_id}; room: {store.source.room_id}; timezone: {store.source.timezone}")
             print(f"Schedule snapshot: {row['schedule_snapshot_id'] or 'none'}")
             print("Schedule attribution not produced (legacy run)" if store.attributor is None else f"Schedule attribution: {store.attribution_policy.version}; basis: schedule_only")

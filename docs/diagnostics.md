@@ -19,7 +19,7 @@ Save a separate JSON report if useful:
 .\.venv\Scripts\wcs-recorder.exe diagnose-run --database data/tracker.sqlite3 --run-id YOUR-RUN-ID --output data/reports/run-diagnostics.json
 ```
 
-The parent directory is created as needed, and existing output files are refused. The report uses schema 1, independent of database schema 1/2 and JSONL export versions. A fixed run and interpretation version produce deterministic report content. If report writing fails, the analysis remains unchanged; a failed partial output must not be treated as a complete report.
+The parent directory is created as needed, and existing output files are refused. Original-run reports use schema 1, independent of database schema 1/2/3 and JSONL export versions. Offline-derived reports use schema 2 with parent/original-observation references and explicit reuse/zero-request semantics. A fixed run and interpretation version produce deterministic report content. If report writing fails, the analysis remains unchanged; a failed partial output must not be treated as a complete report.
 
 These commands require neither an AudD token nor the original audio/schedule files. They open SQLite read-only in a consistent snapshot, do not migrate an old database, and make no provider calls. Inspection exits 0 when reading succeeds even if the inspected run failed. Read/output errors exit 1, invalid CLI arguments 2, and interruption 130.
 
@@ -78,4 +78,4 @@ Synthetic tests cover the controlled exception hierarchy, safe provider explanat
 
 The full suite passed **694 tests**, including **96 new cases** beyond the 598-test baseline. Separate installed-CLI diagnosis explained the saved authentication failures and showed all three historical generic transport errors in the completed trial. Source/database hashes stayed unchanged and its existing JSONL export was byte-identical. No additional provider requests were made during this implementation or verification.
 
-The [implementation plan](phase-2-step-1-plan.md) records the design and acceptance cases. Offline reprocessing of saved recognition evidence is the next Phase 2 chunk. Selective retries, resumability, aliases, corrections, new formats, and changes to song boundaries remain subsequent work.
+The [step 1 design](phase-2-step-1-plan.md) records the original acceptance cases. Phase 2 step 2 now implements [offline reprocessing](reprocessing.md); the full suite passes 780 tests. Derived diagnostics retain the same failure-fact interpretation, identify original observations and inherited timeout settings, and report zero new provider requests while keeping historical billing unknown. Old generic transport errors remain generic. Selective retries, resumability, aliases, corrections, new formats, and changes to song boundaries remain subsequent work.

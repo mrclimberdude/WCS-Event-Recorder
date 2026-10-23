@@ -3,7 +3,7 @@
 from .models import RecognitionStatus
 
 
-def validate_play_evidence(play, source, evidence, resolutions, previous_plays, supported):
+def validate_play_evidence(play, source, evidence, resolutions, previous_plays, supported, *, analysis_stage="live_provisional"):
     supports = []
     for result_id in play.recognition_result_ids:
         if result_id in supported or resolutions.get(result_id) != play.track_id:
@@ -15,7 +15,7 @@ def validate_play_evidence(play, source, evidence, resolutions, previous_plays, 
         or play.window.end_frame != max(window.end_frame for window in supports)
         or play.window.end_frame > source.frame_count
         or play.boundary_method != "recognition_window_envelope_v1"
-        or play.analysis_stage != "live_provisional"
+        or play.analysis_stage != analysis_stage
     ):
         raise ValueError("play must preserve the provisional recognition-window envelope")
     for result_id in play.bridged_result_ids:

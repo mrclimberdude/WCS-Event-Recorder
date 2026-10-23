@@ -9,7 +9,7 @@ from wcs_event_recorder.inputs import load_json
 from wcs_event_recorder.models import ExternalTrackMapping, Track
 from wcs_event_recorder.resolution import TrackResolver
 from wcs_event_recorder.run_store import RunStore
-from wcs_event_recorder.schema import APPLICATION_ID
+from wcs_event_recorder.schema import APPLICATION_ID, SCHEMA_VERSION
 from wcs_event_recorder.storage import Database, SQLiteTrackCatalog, StorageError
 
 
@@ -18,7 +18,7 @@ def test_database_initializes_reopens_and_closes(tmp_path):
     with Database(path) as db:
         assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert db.execute("PRAGMA application_id").fetchone()[0] == APPLICATION_ID
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         connection = db.connection
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
@@ -62,7 +62,7 @@ def test_empty_sqlite_can_be_initialized(tmp_path):
     path = tmp_path / "empty.sqlite3"
     sqlite3.connect(path).close()
     with Database(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_locked_database_is_an_actionable_failure_and_prior_rows_remain(tmp_path, store_factory):

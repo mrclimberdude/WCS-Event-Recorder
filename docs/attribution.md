@@ -70,13 +70,13 @@ Segments are positive, ordered, contiguous, and cover exactly the estimated play
 
 ## Persistence, migration, and failure behavior
 
-New databases use schema version 2. Opening a recognized version-1 database for writing adds `play_attributions`, `context_segments`, and `context_candidates` in one transaction with the version update. Migration failure rolls back all changes. Read-only inspection/export accepts versions 1 and 2 without migrating. Unsupported or unrelated databases remain refused.
+The original attribution migration added `play_attributions`, `context_segments`, and `context_candidates` in schema 2. Phase 2 now initializes/migrates writable databases to schema 3, atomically rebuilding this graph to permit `offline_reprocessed` alongside `live_provisional` while preserving every historical value. Migration failure rolls back all changes, with foreign keys enabled. Read-only inspection/export accepts versions 1/2/3 without migrating. Unsupported or unrelated databases remain refused.
 
 Migration does not change old runs, statuses, configurations, catalog identities, or evidence. Historical runs retain version-2 exports, byte-identical before and after migration for an unchanged run. Standalone `recognize-fixture` still writes version 1; `aggregate-fixture` still writes version 2. New database runs explicitly declare attribution and export version 3, even without a schedule. Database and diagnostic version numbers are independent.
 
 For each new-stage closed play, its evidence links and complete context are saved atomically. Matching uses precomputed schedule intervals; no original input file is reread. A context-write failure rolls back the new play/context pair while prior raw results, resolutions, and committed plays remain. Completion verifies one compatible full partition per play. All-unknown and zero-window runs require no context rows.
 
-Failure or interruption does not close an open play as normal EOF. Existing partial-run and `running`/unconfirmed semantics remain. Inspection/export uses saved metadata and works without the original audio or schedule file. No automatic context backfill, corrections, resume, or migration to a different schedule/policy is implemented; process a separate run for a revision.
+Failure or interruption does not close an open play as normal EOF. Existing partial-run and `running`/unconfirmed semantics remain. Inspection/export uses saved metadata and works without the original audio or schedule file. [Offline reprocessing](reprocessing.md) creates a separate unreviewed analysis using the exact inherited snapshot and an explicit offline stage; unknown/ambiguous context and estimated boundaries remain unchanged. Original exports retain version 2/3; derived exports use version 4. No automatic context backfill, schedule edits, reviewed corrections, or resume is implemented.
 
 ## Verification
 

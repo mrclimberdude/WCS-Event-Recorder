@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -126,5 +126,55 @@ ATTRIBUTION_STATEMENTS = (
         UNIQUE(attribution_id, segment_position, dimension, position))""",
 )
 
-STATEMENTS = V1_STATEMENTS + ATTRIBUTION_STATEMENTS
-TABLES = V1_TABLES | {"play_attributions", "context_segments", "context_candidates"}
+V2_TABLES = V1_TABLES | {"play_attributions", "context_segments", "context_candidates"}
+OFFLINE_ATTRIBUTION_STATEMENTS = tuple(
+    sql.replace("CHECK(analysis_stage = 'live_provisional')",
+                "CHECK(analysis_stage IN ('live_provisional','offline_reprocessed'))")
+    for sql in ATTRIBUTION_STATEMENTS
+)
+
+REPROCESSING_STATEMENTS = (
+    """CREATE TABLE analysis_catalog_snapshots (
+        snapshot_id TEXT PRIMARY KEY, normalized_sha256 TEXT NOT NULL UNIQUE,
+        normalization_version TEXT NOT NULL, document_json TEXT NOT NULL)""",
+    """CREATE TABLE analysis_derivations (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        method_version TEXT NOT NULL CHECK(method_version = 'saved_outcomes_reprocessing_v1'),
+        catalog_snapshot_id TEXT NOT NULL REFERENCES analysis_catalog_snapshots,
+        catalog_basis TEXT NOT NULL CHECK(catalog_basis IN ('captured_current','inherited_seed')),
+        source_hash_provenance TEXT NOT NULL CHECK(source_hash_provenance IN ('inherited_not_reverified','unavailable')),
+        configuration_changes_json TEXT NOT NULL, evidence_sha256 TEXT NOT NULL,
+        FOREIGN KEY(run_id, source_id) REFERENCES analysis_runs(run_id, source_id),
+        FOREIGN KEY(parent_run_id, source_id) REFERENCES analysis_runs(run_id, source_id),
+        UNIQUE(run_id, parent_run_id), CHECK(run_id != parent_run_id))""",
+    """CREATE TABLE reused_result_links (
+        run_id TEXT NOT NULL, result_id TEXT NOT NULL, parent_run_id TEXT NOT NULL,
+        parent_result_id TEXT NOT NULL, payload_sha256 TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, result_id) REFERENCES recognition_results(run_id, result_id),
+        FOREIGN KEY(parent_run_id, parent_result_id) REFERENCES recognition_results(run_id, result_id),
+        PRIMARY KEY(run_id, result_id), UNIQUE(run_id, parent_result_id))""",
+)
+
+STATEMENTS = V1_STATEMENTS + OFFLINE_ATTRIBUTION_STATEMENTS + REPROCESSING_STATEMENTS
+TABLES = V2_TABLES | {"analysis_catalog_snapshots", "analysis_derivations", "reused_result_links"}
+
+
+def migrate_to_v3(db):
+    """Rebuild the narrow attribution graph with foreign keys enabled throughout."""
+    names = ("play_attributions", "context_segments", "context_candidates")
+    for statement in OFFLINE_ATTRIBUTION_STATEMENTS:
+        for name in names:
+            statement = statement.replace(name, name + "_v3")
+        db.execute(statement)
+    for name in names:
+        db.execute(f"INSERT INTO {name}_v3 SELECT * FROM {name}")
+    for name in reversed(names):
+        db.execute(f"DROP TABLE {name}")
+    for name in names:
+        db.execute(f"ALTER TABLE {name}_v3 RENAME TO {name}")
+    for statement in REPROCESSING_STATEMENTS:
+        db.execute(statement)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during schema migration")
+    db.execute("PRAGMA user_version = 3")

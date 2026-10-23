@@ -1,6 +1,8 @@
 # Phase 2, step 2: offline reprocessing of saved recognition evidence
 
-Status: proposed implementation plan. Phase 2 step 1 is implemented; this document does not describe available commands. The last full verification of the existing implementation passed 694 tests. This planning change adds no runtime behavior or provider requests.
+Status: implemented and verified with 780 passing tests, including 86 new cases beyond the 694-test baseline. See the [usage guide](reprocessing.md) for available commands and contracts. The design below is retained as the implementation/acceptance record. The coordinator reuses the existing persistence loop; run-local outcome copies are linked to the parent by their validated window order. Completion additionally rechecks parent evidence, configuration/seed provenance, and reuse integrity.
+
+A separate installed-CLI trial on a private working copy reused all 29 outcomes (22 matches, 4 no-matches, 3 errors), preserved eight occurrences with seven resolution-reason audit changes, and reproduced semantic conclusions on a second replay. Original database/audio/labels/reports stayed unchanged; the parent's export remained byte-identical after migration. Recognition evaluation retained 11 correct eligible matches, 2 eligible errors, and 16 exclusions. No new provider requests were made.
 
 ## Objective
 
@@ -28,7 +30,7 @@ Retries, incomplete-run recovery, new window sizes/cadence, new recognition prov
 
 Use an additive migration for lineage and catalog snapshots, plus the narrow attribution-table rebuild needed for the new analysis stage. Do not encode the complete lineage only as loosely validated configuration JSON.
 
-Proposed additions:
+Implemented additions:
 
 | Storage | Responsibility |
 | --- | --- |
@@ -91,7 +93,7 @@ Inherit `source_audio_sha256` only if the parent has it, and explicitly mark it 
 
 ## 5. Provide CLI and inspection integration
 
-Proposed commands, unavailable until implementation:
+Implemented commands:
 
 ```powershell
 .\.venv\Scripts\wcs-recorder.exe reprocess-run `

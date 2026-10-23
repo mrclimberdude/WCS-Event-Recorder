@@ -14,6 +14,7 @@ from .attribution_store import attribution_document, context_summary, load_attri
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
+from .lineage import STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, reuse_link
 from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
@@ -27,6 +28,10 @@ class RunStore:
         self.run = AnalysisRun(run_id, row["source_id"], datetime.fromisoformat(row["started_at"]), json.loads(row["configuration_json"]))
         self.source = source_from_row(db.execute("SELECT * FROM recording_sources WHERE source_id = ?", (row["source_id"],)).fetchone())
         config = self.run.configuration
+        self.derivation = derivation(db, run_id)
+        self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
+        if config.get("analysis_kind") == "offline_reprocess" and self.derivation is None:
+            raise StorageError("offline run is missing derivation metadata")
         self.config = WindowConfig(config["window_frames"], config["hop_frames"])
         self.policy = AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
         self.resolution_policy = ResolutionPolicy(config["resolution_policy"])
@@ -38,7 +43,7 @@ class RunStore:
             snapshot = self.schedule_snapshot()
             self.attributor = ScheduleAttributor(
                 self.source, run_id, snapshot["snapshot_id"] if snapshot else None,
-                parse_schedule(snapshot["document"]) if snapshot else None, self.attribution_policy,
+                parse_schedule(snapshot["document"]) if snapshot else None, self.attribution_policy, analysis_stage=self.analysis_stage,
             )
 
     def row(self):
@@ -105,10 +110,21 @@ class RunStore:
         self.db.execute("UPDATE analysis_runs SET next_event_index = next_event_index + 1 WHERE run_id = ?", (self.run_id,))
         return row["next_event_index"]
 
-    def result(self, result):
+    def result(self, result, *, parent_result_id=None):
         with self.db.transaction():
             self._open()
             count = self.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (self.run_id,)).fetchone()[0]
+            parent = None
+            if self.derivation is not None:
+                parent = self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? AND attempt_index = ?",
+                    (self.derivation["parent_run_id"], count)).fetchone()
+                if parent_result_id is not None and (parent is None or parent["result_id"] != parent_result_id):
+                    raise ValueError("reused outcome must reference the ordered parent result")
+                if parent is None or payload_digest(result_from_row(parent)) != payload_digest(result):
+                    raise ValueError("reused outcome must preserve its committed parent payload")
+                parent_result_id = parent["result_id"]
+            elif parent_result_id is not None:
+                raise ValueError("original runs cannot reuse parent outcomes")
             if (
                 result.run_id != self.run_id or result.window.source_id != self.source.source_id
                 or result.window.start_frame != count * self.config.hop_frames
@@ -122,11 +138,28 @@ class RunStore:
                 utc_now(), result.provider, result.status.value, json_text(asdict(result.candidate)) if result.candidate else None,
                 json_text(dict(result.raw_evidence)), result.error, self._next_event(),
             ))
+            if parent is not None:
+                self.db.execute("INSERT INTO reused_result_links VALUES (?, ?, ?, ?, ?)", (
+                    self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id, payload_digest(result)))
 
     def resolve(self, result, resolver):
         """Catalog mutation and its historical decision either both commit or neither does."""
         if not isinstance(resolver.catalog, SQLiteTrackCatalog) or resolver.catalog.db is not self.db:
             raise ValueError("persistent resolution requires this database's catalog")
+        frozen = isinstance(resolver.catalog, FrozenTrackCatalog)
+        if (self.derivation is not None) != frozen or (frozen and (
+            resolver.catalog.run_id != self.run_id or resolver.catalog.snapshot_id != self.derivation["catalog_snapshot_id"]
+        )):
+            raise ValueError("resolution catalog must match the run's declared lookup state")
+        checkpoint = resolver.catalog.checkpoint() if frozen else None
+        try:
+            return self._resolve_transaction(result, resolver)
+        except BaseException:
+            if frozen:
+                resolver.catalog.restore(checkpoint)
+            raise
+
+    def _resolve_transaction(self, result, resolver):
         with self.db.transaction():
             self._open()
             raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ? AND run_id = ?", (result.result_id, self.run_id)).fetchone()
@@ -141,6 +174,8 @@ class RunStore:
                 resolution = resolver.resolve(result)
                 if not isinstance(resolution, TrackResolution) or resolution.result_id != result.result_id:
                     raise ValueError("resolver must return this result's TrackResolution")
+                if resolution.track is not None and resolver.catalog.get(resolution.track.track_id) != resolution.track:
+                    raise ValueError("resolution must snapshot the resolver's declared catalog view")
                 self._save_resolution(resolution)
             finally:
                 resolver.catalog.first_result_id = None
@@ -151,8 +186,15 @@ class RunStore:
         raw = self.db.execute("SELECT status FROM recognition_results WHERE result_id = ? AND run_id = ?", (resolution.result_id, self.run_id)).fetchone()
         if raw is None or raw[0] != "match" or resolution.policy_version != self.resolution_policy.version:
             raise ValueError("resolution must reference a match with the run's policy")
-        if resolution.track is not None and SQLiteTrackCatalog(self.db).get(resolution.track.track_id) != resolution.track:
-            raise ValueError("resolution must snapshot the current resolved Track")
+        if resolution.track is not None:
+            shared = SQLiteTrackCatalog(self.db).get(resolution.track.track_id)
+            if self.derivation is None:
+                valid = shared == resolution.track
+            else:
+                valid = ((shared.title, shared.artist) == (resolution.track.title, resolution.track.artist)
+                         and set(resolution.track.external_mappings) <= set(shared.external_mappings))
+            if not valid:
+                raise ValueError("resolution must snapshot the declared resolved Track")
         self.db.execute("INSERT INTO track_resolutions VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
             resolution.result_id, self.run_id, resolution.decision.value, resolution.policy_version, resolution.reason,
             resolution.track.track_id if resolution.track else None,
@@ -183,7 +225,9 @@ class RunStore:
                 row = self.db.execute("SELECT * FROM song_plays WHERE run_id = ? AND play_id = ?", (self.run_id, play_id)).fetchone()
                 if row:
                     previous[play_id] = AudioWindow(row["source_id"], row["start_frame"], row["frame_count"])
-            validate_play_evidence(play, self.source, evidence, resolutions, previous, supported)
+            validate_play_evidence(play, self.source, evidence, resolutions, previous, supported, analysis_stage=self.analysis_stage)
+            if self.derivation is not None and (play.reviewed or play.final_inference is not None or play.live_inference is not None):
+                raise ValueError("offline reprocessing must remain unreviewed without final/live inferences")
             self.db.execute("INSERT INTO song_plays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                 play.play_id, self.run_id, self.source.source_id, play.track_id, play.window.start_frame, play.window.frame_count,
                 play.boundary_method, play.aggregation_policy, play.analysis_stage, play.closure_reason,
@@ -213,11 +257,16 @@ class RunStore:
         }
         if self.attributor is not None:
             summary["context"] = context_summary(self.db, self.run_id)
+        if self.derivation is not None:
+            summary.update(reused_outcomes=sum(counts.values()), new_provider_requests=0)
         return summary
 
     def complete(self):
         with self.db.transaction():
             self._open()
+            if self.derivation is not None:
+                from .reprocessing import validate_reuse
+                validate_reuse(self, complete=True)
             summary = self.summary()
             expected = self.config.window_count(self.source.frame_count)
             if sum(summary["counts"].values()) != expected:
@@ -236,6 +285,8 @@ class RunStore:
                     self.attributor.validate(self.attribution(play.play_id), play)
             last = self.config.last_end_frame(self.source.frame_count)
             summary.update(source_frame_count=self.source.frame_count, attempts=expected, last_window_end_frame=last, trailing_frames=self.source.frame_count - last)
+            if self.derivation is not None:
+                summary.pop("attempts")
             self._terminal("completed", summary)
 
     def stop(self, status, error):
@@ -251,7 +302,11 @@ class RunStore:
         ))
 
     def results(self):
-        return [result_from_row(row) for row in self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? ORDER BY attempt_index", (self.run_id,))]
+        return list(self.iter_results())
+
+    def iter_results(self):
+        for row in self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? ORDER BY attempt_index", (self.run_id,)):
+            yield result_from_row(row)
 
     def resolution(self, result_id):
         row = self.db.execute("SELECT * FROM track_resolutions WHERE result_id = ? AND run_id = ?", (result_id, self.run_id)).fetchone()
@@ -293,9 +348,12 @@ class RunStore:
         row = self.row()
 
         def record(kind, **fields):
-            return {"schema_version": 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
+        if self.derivation is not None:
+            yield record("analysis_derived", derivation=self.derivation,
+                         catalog_seed=load_catalog_snapshot(self.db, self.derivation["catalog_snapshot_id"]))
         event_sql = """SELECT event_index, 'raw' AS kind, result_id AS id FROM recognition_results WHERE run_id = ?
             UNION ALL SELECT event_index, 'resolution', result_id FROM track_resolutions WHERE run_id = ?
             UNION ALL SELECT event_index, 'play', play_id FROM song_plays WHERE run_id = ?"""
@@ -307,6 +365,9 @@ class RunStore:
                 raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ?", (event["id"],)).fetchone()
                 result = result_from_row(raw)
                 yield record("recognition_result", **result_document(result), processed_at=raw["processed_at"], start_time=self.source.time_at_frame(result.window.start_frame).isoformat(), end_time=self.source.time_at_frame(result.window.end_frame).isoformat())
+                if self.derivation is not None:
+                    yield record("recognition_evidence_reused", link=reuse_link(self.db, self.run_id, result.result_id),
+                                 origin=observation_origin(self.db, self.run_id, result.result_id))
             elif event["kind"] == "resolution":
                 yield record("track_resolution", **asdict(self.resolution(event["id"])))
             elif event["kind"] == "context":

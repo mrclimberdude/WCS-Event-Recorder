@@ -94,7 +94,7 @@ Overlapping recognition windows can produce overlapping play estimates. The algo
 
 No play is extended through an unsupported prefix/tail or an unsubmitted EOF window. No provider position timecode is converted into an exact event boundary. No numeric identity or aggregation confidence is invented; provider confidence remains candidate evidence.
 
-All emitted plays have `analysis_stage: live_provisional`. Closing an occurrence is separate from final post-event classification or human review. Existing live/final inference fields remain separate and unset by this step.
+Original processing emits plays with `analysis_stage: live_provisional`. Phase 2 [offline reprocessing](reprocessing.md) reuses the same grouping algorithm with `analysis_stage: offline_reprocessed`, unchanged boundaries, and an explicit saved gap override when requested. Closing an occurrence is separate from final classification or human review; offline plays also remain unreviewed with unset live/final inference fields. Original runs and exports remain unchanged.
 
 ## Versioned evidence
 
