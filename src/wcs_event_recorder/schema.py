@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -222,6 +222,19 @@ SAVED_RECOVERY_STATEMENTS = (
 STATEMENTS = SAVED_PLAY_STATEMENTS + OFFLINE_ATTRIBUTION_STATEMENTS + SAVED_REPROCESSING_STATEMENTS + RECOVERY_STATEMENTS + SAVED_RECOVERY_STATEMENTS
 TABLES = V4_TABLES | {"analysis_recovery_manifests"}
 
+V5_TABLES = TABLES
+V5_STATEMENTS = STATEMENTS
+
+
+def _prefix_statement(sql):
+    if sql.startswith("CREATE TABLE analysis_runs "):
+        sql = sql.replace("'completed','failed'", "'completed','completed_partial','failed'")
+    return sql.replace("'saved_evidence_recovery_v1'))", "'saved_evidence_recovery_v1','saved_prefix_recovery_v1'))").replace(
+        "'planned_windows_complete'))", "'planned_windows_complete','end_of_saved_prefix'))")
+
+
+STATEMENTS = tuple(_prefix_statement(sql) for sql in V5_STATEMENTS)
+
 
 def migrate_to_v3(db):
     """Rebuild the narrow attribution graph with foreign keys enabled throughout."""
@@ -261,35 +274,53 @@ def migrate_to_v4(db):
     db.execute("PRAGMA user_version = 4")
 
 
-def _rebuild_v5(db, names, statements, *, support_index=False):
+def _rebuild_graph(db, names, statements, *, suffix, support_index=False):
     """Rebuild a dependent graph without disabling foreign-key enforcement."""
     import re
     def renamed(sql):
         for name in names:
-            sql = re.sub(r"\b" + name + r"\b", name + "_v5", sql)
-        return sql.replace("INDEX one_support_play ", "INDEX one_support_play_v5 ")
+            sql = re.sub(r"\b" + name + r"\b", name + suffix, sql)
+        return sql.replace("INDEX one_support_play ", "INDEX one_support_play" + suffix + " ")
     for statement in statements:
         db.execute(renamed(statement))
     for name in names:
-        db.execute(f"INSERT INTO {name}_v5 SELECT * FROM {name}")
+        db.execute(f"INSERT INTO {name}{suffix} SELECT * FROM {name}")
     for name in reversed(names):
         db.execute(f"DROP TABLE {name}")
     for name in names:
-        db.execute(f"ALTER TABLE {name}_v5 RENAME TO {name}")
+        db.execute(f"ALTER TABLE {name}{suffix} RENAME TO {name}")
     if support_index:
-        db.execute("DROP INDEX one_support_play_v5")
+        db.execute("DROP INDEX one_support_play" + suffix)
         db.execute("CREATE UNIQUE INDEX one_support_play ON play_evidence(result_id) WHERE role = 'support'")
 
 
 def migrate_to_v5(db):
     methods = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections")
     method_sql = SAVED_REPROCESSING_STATEMENTS[1:] + RECOVERY_STATEMENTS[3:]
-    _rebuild_v5(db, methods, method_sql)
+    _rebuild_graph(db, methods, method_sql, suffix="_v5")
     plays = ("song_plays", "play_evidence", "play_overlaps", "play_attributions", "context_segments", "context_candidates")
     play_sql = tuple(sql for sql in SAVED_PLAY_STATEMENTS if sql.startswith(("CREATE TABLE song_plays", "CREATE TABLE play_evidence", "CREATE TABLE play_overlaps", "CREATE UNIQUE INDEX one_support_play"))) + OFFLINE_ATTRIBUTION_STATEMENTS
-    _rebuild_v5(db, plays, play_sql, support_index=True)
+    _rebuild_graph(db, plays, play_sql, suffix="_v5", support_index=True)
     for sql in SAVED_RECOVERY_STATEMENTS:
         db.execute(sql)
     if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ValueError("foreign-key integrity failed during saved-evidence recovery migration")
     db.execute("PRAGMA user_version = 5")
+
+
+def migrate_to_v6(db):
+    import re
+    independent = {"recording_sources", "schedule_snapshots", "analysis_catalog_snapshots"}
+    names, statements = [], []
+    for sql in STATEMENTS:
+        match = re.match(r"CREATE TABLE (\w+)", sql)
+        if match is not None and match[1] not in independent:
+            names.append(match[1])
+            statements.append(sql)
+        elif sql.startswith("CREATE UNIQUE INDEX one_support_play"):
+            statements.append(sql)
+    # The declared order places every referenced rebuilt table before its users.
+    _rebuild_graph(db, names, statements, suffix="_v6", support_index=True)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during prefix recovery migration")
+    db.execute("PRAGMA user_version = 6")

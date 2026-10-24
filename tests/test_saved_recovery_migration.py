@@ -9,7 +9,7 @@ import pytest
 from wcs_event_recorder.audd import AudDSettings
 from wcs_event_recorder.diagnostics import diagnose_run
 from wcs_event_recorder.evaluation import evaluate_run
-from wcs_event_recorder.models import RecognitionOutcome, RecognitionStatus
+from wcs_event_recorder.models import ExternalTrackMapping, RecognitionOutcome, RecognitionStatus
 from wcs_event_recorder.persistence import export_run, persist_results
 from wcs_event_recorder.recovery import create_recovery_analysis, create_session
 from wcs_event_recorder.recovery_plan import plan_recovery, prepare_windows
@@ -20,7 +20,7 @@ from wcs_event_recorder.saved_recovery import plan_saved_recovery, recover_saved
 from wcs_event_recorder.storage import Database, StorageError
 
 
-@pytest.fixture(params=[1,2,3,4])
+@pytest.fixture(params=[1,2,3,4,5])
 def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
     schema_version=request.param
     schema=json.loads((Path(__file__).parent/"fixtures"/f"schema-v{schema_version}.json").read_text())
@@ -36,14 +36,16 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
     db.connection,db.schema_version=connection,schema_version
     configuration={k:v for k,v in recovery_parent.run.configuration.items() if schema_version>=2 or not k.startswith("attribution_")}
     root=store_factory(db,source=recovery_parent.source,attribution=schema_version>=2,configuration_extra=configuration)
-    persist_results((replace(r,run_id=root.run_id,result_id=str(uuid4())) for r in recovery_parent.results()),root)
+    raw=recovery_parent.results()
+    raw[0]=replace(raw[0],candidate=replace(raw[0].candidate,external_mappings=(ExternalTrackMapping("synthetic","migration-first-result"),)))
+    persist_results((replace(r,run_id=root.run_id,result_id=str(uuid4())) for r in raw),root)
     if schema_version>=3:
         config,changes=requested_configuration(root,None)
         with db.transaction():
             pure=create_derived_run(db,root,config,changes,validate_parent(root))
         persist_results((replace(r,run_id=pure.run_id,result_id=str(uuid4())) for r in root.results()),pure)
     session=None
-    if schema_version==4:
+    if schema_version>=4:
         plan=plan_recovery(db.path,root.run_id,[2,10,13],AudDSettings(max_requests=3))
         with prepare_windows(plan,root.source) as prepared:
             with db.transaction(): session=create_session(db,root,plan)
@@ -54,7 +56,7 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
             session.complete()
         with db.transaction(): _,selected=create_recovery_analysis(db,session)
         persist_results((replace(selected_result(session,i,r)[0],run_id=selected.run_id,result_id=str(uuid4())) for i,r in enumerate(root.results(),1)),selected)
-    if schema_version==4:
+    if schema_version>=4:
         with db.transaction(): _,parent=create_recovery_analysis(db,session)
         results=(selected_result(session,i,r)[0] for i,r in enumerate(root.results(),1))
     elif schema_version==3:
@@ -66,6 +68,10 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
         results=root.iter_results()
     for result in results: parent.result(replace(result,run_id=parent.run_id,result_id=str(uuid4())))
     parent.stop("failed","controlled historical derivation failure")
+    if schema_version==5:
+        from wcs_event_recorder.saved_recovery import create_saved_analysis
+        with db.transaction(): saved=create_saved_analysis(db,parent,plan_saved_recovery(db.path,parent.run_id))
+        persist_results((replace(r,run_id=saved.run_id,result_id=str(uuid4())) for r in parent.results()),saved)
     try: yield parent
     finally: db.close()
 
@@ -84,12 +90,15 @@ def test_genuine_old_schema_upgrade_preserves_every_historical_run(historical_sa
     label_path.write_text(json.dumps(labels))
     evaluations={run_id:evaluate_run(parent.db.path,run_id,label_path,tmp_path/f"before-{run_id}.json") for run_id in ids}
     export_run(parent.db.path,parent.run_id,tmp_path/"before.jsonl")
+    mappings=[tuple(r) for r in parent.db.execute("SELECT * FROM track_mappings ORDER BY service,external_id")]
+    assert mappings and any(r is not None for r in parent.db.execute("SELECT first_result_id FROM track_mappings").fetchone())
     original_bytes=parent.db.path.read_bytes()
     plan=plan_saved_recovery(parent.db.path,parent.run_id)
     assert parent.db.path.read_bytes() == original_bytes
     child=recover_saved_run(parent.db.path,plan)
     with Database(parent.db.path,readonly=True) as db:
-        assert db.schema_version == 5 and not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert db.schema_version == 6 and not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert [tuple(r) for r in db.execute("SELECT * FROM track_mappings ORDER BY service,external_id")]==mappings
         assert db.execute("SELECT sql FROM sqlite_schema WHERE name = 'one_support_play'").fetchone()
         for run_id in ids:
             assert list(RunStore(db,run_id).records()) == before[run_id]
@@ -102,6 +111,7 @@ def test_genuine_old_schema_upgrade_preserves_every_historical_run(historical_sa
     assert (tmp_path/"before.jsonl").read_bytes() == (tmp_path/"after.jsonl").read_bytes()
 
 
+@pytest.mark.parametrize("historical_saved_parent",[1,2,3,4],indirect=True)
 @pytest.mark.parametrize("boundary",["methods_create","methods_drop","plays_create","plays_drop","index","manifest","integrity","marker"])
 def test_schema5_failure_rolls_back_the_entire_migration_chain(historical_saved_parent,monkeypatch,boundary):
     parent=historical_saved_parent
@@ -127,3 +137,28 @@ def test_schema5_failure_rolls_back_the_entire_migration_chain(historical_saved_
         assert db.schema_version == parent.db.schema_version
         assert [tuple(r) for r in db.execute("SELECT name,sql FROM sqlite_schema ORDER BY name")] == schema
         for run_id,records in original.items(): assert list(RunStore(db,run_id).records()) == records
+
+
+@pytest.mark.parametrize("boundary",["create","copy","drop","rename","index","integrity","marker"])
+def test_schema6_failure_rolls_back_populated_history(historical_saved_parent,monkeypatch,boundary):
+    parent=historical_saved_parent
+    original=parent.db.path.read_bytes()
+    execute=Database.execute
+    def fail(self,sql,parameters=()):
+        if ((boundary=="create" and sql.startswith("CREATE TABLE analysis_runs_v6"))
+            or (boundary=="copy" and sql.startswith("INSERT INTO track_mappings_v6"))
+            or (boundary=="drop" and sql=="DROP TABLE analysis_runs")
+            or (boundary=="rename" and sql=="ALTER TABLE analysis_runs_v6 RENAME TO analysis_runs")
+            or (boundary=="index" and sql=="DROP INDEX one_support_play_v6")
+            or (boundary=="integrity" and sql=="PRAGMA foreign_key_check" and self.connection.execute("PRAGMA user_version").fetchone()[0]==5)
+            or (boundary=="marker" and sql=="PRAGMA user_version = 6")):
+            raise StorageError("controlled schema6 failure")
+        return execute(self,sql,parameters)
+    monkeypatch.setattr(Database,"execute",fail)
+    with pytest.raises(StorageError,match="schema6 failure"):
+        with Database(parent.db.path): pass
+    assert parent.db.path.read_bytes()==original
+    monkeypatch.setattr(Database,"execute",execute)
+    with Database(parent.db.path,readonly=True) as db:
+        assert db.schema_version==parent.db.schema_version
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()

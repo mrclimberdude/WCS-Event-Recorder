@@ -332,7 +332,7 @@ class SongPlay:
     def __post_init__(self) -> None:
         for name in ("play_id", "run_id", "track_id", "boundary_method", "aggregation_policy", "analysis_stage"):
             _text(getattr(self, name), name)
-        if self.closure_reason not in {"track_changed", "gap_exceeded", "end_of_source", "planned_windows_complete"}:
+        if self.closure_reason not in {"track_changed", "gap_exceeded", "end_of_source", "planned_windows_complete", "end_of_saved_prefix"}:
             raise ValueError("invalid play closure_reason")
         if not self.recognition_result_ids:
             raise ValueError("a play must have supporting recognition results")

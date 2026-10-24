@@ -6,8 +6,8 @@ from pathlib import Path
 
 from .attribution_store import attribution_document
 from .codecs import json_text
-from .lineage import SAVED_METHOD, load_catalog_snapshot, payload_digest, recovery_aware, reuse_link, saved_aware
-from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_parent, validate_reuse
+from .lineage import PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
+from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_closed_evidence, validate_parent, validate_reuse
 from .run_store import RunStore
 from .storage import Database
 
@@ -80,11 +80,16 @@ def occurrence_components(before, after, result_map):
 def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
-    reconstructed = child.derivation["method_version"] == SAVED_METHOD
-    if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != "completed":
+    prefix = prefix_aware(child)
+    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD}
+    if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
-        validate_parent(child)
+        if prefix:
+            validate_reuse(child, complete=True)
+            validate_closed_evidence(child)
+        else:
+            validate_parent(child)
         validate_reuse(child, complete=True)
     except ReprocessingError as exc:
         raise ComparisonError(str(exc)) from exc
@@ -178,6 +183,13 @@ def build_comparison(parent, child):
         if reconstructed:
             report.update(semantic_equivalent=None,
                           equivalence_scope="Baseline analysis is incomplete. Compare available stored conclusions; complete musical equivalence is not assessable.")
+    if prefix:
+        from .saved_recovery import completion_facts
+        report.update(schema_version=4, method="saved_prefix_comparison_v1", saved_prefix_recovery=completion_facts(child),
+                      baseline_derivation_complete=False, recovered_resolution_decisions=recovered_decisions,
+                      semantic_equivalent=None, full_source_coverage=False,
+                      equivalence_scope="Compare only selected prefix evidence and available conclusions; full-source equivalence is not assessable.",
+                      occurrence_interpretation="Conclusions reconstructed from the saved prefix. Missing suffix observations are not no-matches; the final open occurrence is censored.")
     return report
 
 
@@ -202,5 +214,8 @@ def comparison_lines(report):
     yield f"Occurrences: {report['occurrence_summary']}; new provider requests during analysis: 0" if report["schema_version"] >= 2 else f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
     if report["schema_version"] >= 2:
         yield f"Changed window outcomes: {len(report['outcome_changes'])}; newly selected retry outcomes: {report['newly_selected_retry_outcomes']}; observation provenance identifies collection separately."
-    if report["schema_version"] == 3:
+    if report["schema_version"] >= 3:
         yield f"Baseline derivation complete: {report['baseline_derivation_complete']}; recovered decisions: {len(report['recovered_resolution_decisions'])}; historical EOF unknown."
+    if report["schema_version"] == 4:
+        coverage = report["saved_prefix_recovery"]["coverage"]
+        yield f"Partial source-window coverage: {coverage['materialized_windows']}/{coverage['planned_windows']}; unobserved input windows: {coverage['unobserved_input_windows']}; final open occurrence is censored."

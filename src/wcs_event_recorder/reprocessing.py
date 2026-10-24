@@ -13,7 +13,7 @@ from .codecs import json_text, result_from_row, source_document
 from .inputs import parse_schedule, validate_schedule
 from .evidence import validate_play_evidence
 from .models import AudioWindow, RecognitionStatus
-from .lineage import ALLOCATION, METHOD, RECOVERY_METHOD, SAVED_METHOD, SAVED_TERMINATION, capture_catalog, check_acyclic, digest, load_catalog_snapshot, payload_digest, reuse_link
+from .lineage import ALLOCATION, METHOD, PREFIX_METHOD, RECOVERY_METHOD, SAVED_METHOD, SAVED_TERMINATION, capture_catalog, check_acyclic, digest, load_catalog_snapshot, payload_digest, reuse_link
 from .persistence import persist_results
 from .resolution import NORMALIZATION_VERSION
 from .run_store import RunStore
@@ -46,7 +46,7 @@ def validate_reuse(store, *, complete):
     info = store.derivation
     if info is None:
         raise ReprocessingError("analysis is not a derived run")
-    if info["method_version"] == SAVED_METHOD:
+    if info["method_version"] in {SAVED_METHOD, PREFIX_METHOD}:
         from .saved_recovery import validate_saved_analysis
         return validate_saved_analysis(store, complete=complete)
     if info["method_version"] == RECOVERY_METHOD:

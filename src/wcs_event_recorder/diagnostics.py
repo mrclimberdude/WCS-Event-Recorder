@@ -257,6 +257,13 @@ def build_run_diagnostics(store):
             from .saved_recovery import completion_facts
             report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
                           coverage_note="Saved observations are reused without uploads. Configured-window completion does not confirm historical EOF; original status and billing remain separate.")
+        from .lineage import prefix_aware
+        if prefix_aware(store):
+            from .saved_recovery import completion_facts
+            report.update(schema_version=5, saved_prefix_recovery=completion_facts(store),
+                          coverage_note="Only the saved prefix is selected. Unobserved source windows and uncopied recovery input are separate; historical dispatch, EOF and billing remain unknown. No uploads occur.")
+            if status == "completed_partial":
+                report["status_note"] = "Offline prefix execution finished successfully; recording coverage remains partial."
     return report
 
 
@@ -279,7 +286,7 @@ def diagnostic_lines(report):
     yield f"Run {report['run_id']}: {report['run_status']}. {report['status_note']}"
     yield f"Saved outcomes: {report['saved_outcomes']}/{report['planned_windows']} planned windows; errors: {report['error_count']}; windows without a saved result: {report['windows_without_saved_result']}"
     yield f"Outcomes: {report['outcome_counts']}; failure families: {report['failure_family_counts']}"
-    if report.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery"}:
+    if report.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery"}:
         yield f"Offline analysis; parent: {report['parent_run_id']}; new provider requests: 0; error facts describe original observations."
     yield report["coverage_note"]
     for item in report["errors"]:

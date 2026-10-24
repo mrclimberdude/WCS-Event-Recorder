@@ -175,6 +175,8 @@ def _ratio(numerator, denominator):
 
 
 def evaluate_store(store, labels):
+    from .lineage import prefix_aware
+    prefix = prefix_aware(store)
     source, config = store.source, store.run.configuration
     if labels.source_id != source.source_id or labels.frame_count != source.frame_count or labels.audio_format != source.audio_format:
         raise EvaluationError("labels do not match the run's source identity/frame metadata")
@@ -269,6 +271,11 @@ def evaluate_store(store, labels):
         paired_occurrences.add(occurrence_id)
         pair = {"play_id": play.play_id, "occurrence_id": occurrence_id}
         for edge in ("start", "end"):
+            if prefix and edge == "end" and play.closure_reason == "end_of_saved_prefix":
+                pair[edge] = {"censored": True, "prediction_censored": True, "label_censored": truth.end_censored,
+                    "reason": "saved_prefix_ended", "observed_envelope_end_frame": play.window.end_frame,
+                    "signed_error_frames": None, "absolute_error_frames": None, "within_tolerance": None}
+                continue
             if getattr(truth, f"{edge}_censored"):
                 pair[edge] = {"censored": True}
                 continue
@@ -352,6 +359,23 @@ def evaluate_store(store, labels):
             from .saved_recovery import completion_facts
             report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
                           completion_scope="Selected configured windows and rebuilt conclusions; historical EOF is unknown. Reused observations are not new acoustic trials.")
+        if prefix:
+            from .saved_recovery import completion_facts
+            facts = completion_facts(store)
+            input_count = facts["coverage"]["input_saved_windows"]
+            input_opportunities = Counter()
+            for i in range(input_count):
+                item, _ = _classify_window(AudioWindow(source.source_id, i * store.config.hop_frames, store.config.window_frames), labels)
+                if item:
+                    input_opportunities[item.interval_id] += 1
+            materialized_opportunities = Counter(item["expected_occurrence_id"] for item in attempts if item["expected_occurrence_id"] is not None)
+            report.update(schema_version=5, saved_prefix_recovery=facts, analysis_execution_complete=row["status"] == "completed_partial",
+                          completion_scope="Only saved prefix observations are derived. Recording coverage is partial; a censored predicted ending is not scored as a song end.")
+            report["grouping"].update(
+                input_eligible_windows_by_occurrence={key: input_opportunities[key] for key in songs},
+                materialized_eligible_windows_by_occurrence={key: materialized_opportunities[key] for key in songs},
+                unobserved_suffix_eligible_windows_by_occurrence={key: opportunities[key] - input_opportunities[key] for key in songs},
+                occurrences_without_input_opportunities=sorted(key for key in songs if opportunities[key] and not input_opportunities[key]))
     return report
 
 

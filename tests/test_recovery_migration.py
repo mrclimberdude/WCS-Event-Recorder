@@ -61,7 +61,7 @@ def test_old_schema_plan_stays_readonly_then_migrates_preserving_export_and_diag
         recovery = collect_recovery(parent.db.path, plan, "test-key", client=client)
     child_id = analyze_recovery(parent.db.path, recovery["recovery_id"])["run_id"]
     with Database(parent.db.path, readonly=True) as db:
-        assert db.schema_version == 5 and not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert db.schema_version == 6 and not db.execute("PRAGMA foreign_key_check").fetchall()
         assert list(RunStore(db, parent.run_id).records()) == original
         assert all(record["schema_version"] == 5 for record in RunStore(db, child_id).records())
     second = tmp_path / "after.jsonl"

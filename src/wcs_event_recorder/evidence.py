@@ -4,6 +4,11 @@ from .models import RecognitionStatus
 
 
 def validate_play_evidence(play, source, evidence, resolutions, previous_plays, supported, *, analysis_stage="live_provisional", termination_policy=None):
+    if play.closure_reason == "end_of_saved_prefix":
+        if (termination_policy != "saved_prefix_grid_v1" or not {"historical_termination_unknown", "right_censored_by_missing_observations"} <= set(play.uncertainty_flags)):
+            raise ValueError("prefix closure requires explicit censoring and recovery provenance")
+    elif termination_policy == "saved_prefix_grid_v1" and play.closure_reason in {"end_of_source", "planned_windows_complete"}:
+        raise ValueError("prefix recovery cannot claim normal EOF or full-grid completion")
     if play.closure_reason == "planned_windows_complete":
         if termination_policy != "saved_complete_grid_v1" or "historical_termination_unknown" not in play.uncertainty_flags:
             raise ValueError("configured-grid closure requires saved recovery termination provenance")

@@ -8,7 +8,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 steps 1/2 add safe diagnostics, offline reprocessing with preserved evidence and frozen catalog inputs, and comparison of original/revised conclusions.
 
-Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Next is a terminal run's saved prefix (3b2a), then evidence from incomplete collections and unconfirmed-history checkpoints, followed by missing-window recognition (3c). Later work includes reviewed identity/schedule revisions, longer-recording resource checks, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
+Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Step 3b2a now recovers terminal saved prefixes with an explicit partial-success state, censored final occurrences and coverage-aware reports. Next is evidence from incomplete collections (3b2b), then unconfirmed-history checkpoints (3b2c) and missing-window recognition (3c). Later work includes reviewed identity/schedule revisions with explicit partial-analysis eligibility, expanded resource checks beyond the completed synthetic checkpoint, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
 
 ## Setup and verification
 
@@ -129,7 +129,13 @@ Planning verifies retained source audio and previews only explicitly selected er
 .\.venv\Scripts\wcs-recorder.exe recover-saved-run --database data/tracker.sqlite3 --plan data/reports/saved-recovery-plan.json
 ```
 
-The recovered child uses explicit configured-window completion and preserves the unsuccessful original. Partial/running/fatal inputs are refused. Read the [saved-evidence recovery guide](docs/saved-recovery.md) for eligibility, final-play closure, reports and failure behavior. The complete suite passes **971 tests**, including **103 new step-3b1 cases**. Installed synthetic and private compatibility checks made zero real provider requests.
+The complete-grid child uses explicit configured-window completion and preserves the unsuccessful original. This default mode refuses partial/running/fatal inputs. Read the [saved-evidence recovery guide](docs/saved-recovery.md) for eligibility, final-play closure, reports and failure behavior. The step-3b1 suite passed **971 tests**, including **103 new cases**; current prefix verification is documented below. Installed synthetic and private compatibility checks made zero real provider requests.
+
+## Recover a saved prefix
+
+Add `--coverage prefix` to `plan-saved-recovery` when a terminal failed/interrupted analysis saved only its first configured windows. Execute its plan with the same `recover-saved-run` command. A successful child reports `completed_partial`: for example, ten of ten selected input windows processed, ten of 29 source windows covered, and nineteen unobserved input windows. The final open song is censored; missing outcomes are never invented.
+
+See the [prefix recovery guide](docs/prefix-recovery.md) for commands, coverage interpretation, testing and remaining limits. No audio, token or provider calls are needed. Schema 6 preserves historical formats; prefix export/comparison/diagnostic-evaluation versions are 7/4/5. Verification passed 1,079 regression tests plus three additional ancestry cases, with zero real provider requests.
 
 ## Start here
 
@@ -156,6 +162,8 @@ The recovered child uses explicit configured-window completion and preserves the
 - [Phase 2, step 3a plan](docs/phase-2-step-3a-plan.md): implemented selected-error recovery design and acceptance scope.
 - [Saved-evidence recovery](docs/saved-recovery.md): offline planning and recovery of complete observations from unsuccessful analyses, honest termination and comparison.
 - [Phase 2, step 3b plan](docs/phase-2-step-3b-plan.md): implemented 3b1 design; partial-evidence recovery remains 3b2.
+- [Prefix recovery guide](docs/prefix-recovery.md): offline terminal-prefix execution and honest partial coverage.
+- [Phase 2, step 3b2a plan](docs/phase-2-step-3b2a-plan.md): implemented terminal-prefix design, partial-success status, censored endings, coverage-aware reports, and verification.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -189,7 +197,9 @@ The recovered child uses explicit configured-window completion and preserves the
 |   |-- phase-2-step-1-plan.md
 |   |-- phase-2-step-2-plan.md
 |   |-- phase-2-step-3a-plan.md
-|   `-- phase-2-step-3b-plan.md
+|   |-- phase-2-step-3b-plan.md
+|   |-- phase-2-step-3b2a-plan.md
+|   `-- prefix-recovery.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/

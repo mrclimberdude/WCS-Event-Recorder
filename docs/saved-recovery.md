@@ -44,7 +44,7 @@ A derived parent inherits its frozen starting catalog. For an original run witho
   --plan data/reports/saved-recovery-plan.json
 ```
 
-Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 5. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
+Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 6. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
 
 Each unchanged normalized outcome commits with its immediate-parent link before resolution. Catalog additions commit with their decisions; closed plays commit with all evidence/context; terminal completion follows coverage checks. No recognition attempt or retry collection is created, and zero provider requests occur. Originals retain their status, rows, summaries, snapshots and export bytes.
 
@@ -78,7 +78,7 @@ The dedicated recovery comparison accepts the unsuccessful immediate parent and 
 
 Observation origins retain actual original/retry timestamps, request settings and latency. Diagnostic facts do not become more specific through reuse. Evaluation scores each selected observation once against independent labels, marks it as reused evidence rather than another acoustic trial, and retains termination/timing limitations. An unavailable source audio hash still prevents hash-bound evaluation.
 
-JSONL version 6 records the recovery manifest and completion facts, including in descendants. Comparison schema 3 includes recovery/completion scope; diagnostic/evaluation schema 4 carries the same limitation. Existing original, pure-derived and selected-error historical exports/reports keep their versions and bytes. New/writable databases use schema 5; read-only inspection supports schemas 1 through 5 without migrating.
+JSONL version 6 records the recovery manifest and completion facts, including in descendants. Comparison schema 3 includes recovery/completion scope; diagnostic/evaluation schema 4 carries the same limitation. Existing original, pure-derived and selected-error historical exports/reports keep their versions and bytes. New/writable databases use schema 6; read-only inspection supports schemas 1 through 6 without migrating.
 
 ## Verification and limits
 
@@ -87,3 +87,5 @@ The complete installed-package suite passed **971 tests**, including **103 new c
 Installed synthetic acceptance prepares a 29-window failed baseline and recovers it in a separate process with the recording and token absent. Historical private audio is used only for inspection/migration compatibility on a database copy; the completed Berlin baseline is not altered to manufacture an eligible failure. These checks establish offline recovery and compatibility, not acoustic accuracy or full-event reliability. The separately enabled live three-request trial for step 3a remains pending.
 
 Local artifacts are under `data/reports/saved-recovery-verification-6ab66cd134/`. Acceptance recovered all 29 outcomes with zero uploads, repeated canonical IDs on a second execution and a pure descendant, preserved the parent export, and refused 28/29 coverage and a fatal-last-window input without database changes. The private copy migrated from schema 2 to 5 with unchanged original JSONL, evaluation bytes and diagnostic content; original database/audio/labels/reports were hash-checked unchanged. An additional selected-error descendant used one mocked request and retained the saved-evidence termination policy and version-6 provenance. No real provider requests were made.
+
+Explicit `--coverage prefix` is now available through the separate [prefix recovery contract](prefix-recovery.md). It uses `completed_partial` and censored finalization; this guide documents the unchanged default complete-grid mode.

@@ -117,14 +117,24 @@ class SongPlayAggregator:
         active.end_frame = result.window.end_frame
         return ()
 
-    def finish(self, *, termination_policy=None) -> tuple[SongPlay, ...]:
-        if termination_policy not in {None, "saved_complete_grid_v1"}:
+    def finish(self, *, termination_policy=None, expected_results=None) -> tuple[SongPlay, ...]:
+        if termination_policy not in {None, "saved_complete_grid_v1", "saved_prefix_grid_v1"}:
             raise ValueError("unsupported aggregation termination policy")
         if self._finished:
             raise ValueError("aggregation has already finished")
-        if self._received != self.config.window_count(self.source.frame_count):
+        expected = self.config.window_count(self.source.frame_count)
+        if termination_policy == "saved_prefix_grid_v1":
+            if type(expected_results) is not int or not 0 < expected_results < expected:
+                raise ValueError("prefix finalization requires an explicit proper prefix count")
+            expected = expected_results
+        elif expected_results is not None:
+            raise ValueError("an input count override is only allowed for prefix finalization")
+        if self._received != expected:
             raise ValueError("cannot finish aggregation with missing recognition results")
         self._finished = True
+        if self._open and termination_policy == "saved_prefix_grid_v1":
+            self._open.flags.update({"historical_termination_unknown", "right_censored_by_missing_observations"})
+            return (self._close("end_of_saved_prefix"),)
         if self._open and termination_policy == "saved_complete_grid_v1":
             self._open.flags.add("historical_termination_unknown")
             return (self._close("planned_windows_complete"),)

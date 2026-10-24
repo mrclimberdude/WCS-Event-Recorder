@@ -7,7 +7,7 @@ from pathlib import Path
 from .aggregation import SongPlayAggregator
 from .codecs import json_text
 from .models import RecognitionStatus
-from .lineage import FrozenTrackCatalog, load_catalog_snapshot, recovery_aware, stable_track_allocator
+from .lineage import FrozenTrackCatalog, load_catalog_snapshot, prefix_aware, recovery_aware, stable_track_allocator
 from .resolution import TrackResolver
 from .run_output import RunOutputError
 from .run_store import RunStore
@@ -43,7 +43,12 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                     if on_play is not None:
                         on_play(play, resolver.catalog.get(play.track_id))
             termination = store.run.configuration.get("aggregation_termination_policy")
-            finished = aggregator.finish(termination_policy=termination) if termination else aggregator.finish()
+            if prefix_aware(store):
+                from .saved_recovery import prefix_input_count, validate_saved_analysis
+                validate_saved_analysis(store, complete=True)
+                finished = aggregator.finish(termination_policy=termination, expected_results=prefix_input_count(store))
+            else:
+                finished = aggregator.finish(termination_policy=termination) if termination else aggregator.finish()
             for play in finished:
                 store.play(play)
                 if on_play is not None:

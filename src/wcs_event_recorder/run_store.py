@@ -14,7 +14,7 @@ from .attribution_store import attribution_document, context_summary, load_attri
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
-from .lineage import RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, recovery_aware, reuse_link, saved_aware
+from .lineage import PREFIX_METHOD, PREFIX_TERMINATION, RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
 from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
@@ -30,9 +30,14 @@ class RunStore:
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
-        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery"}
+        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery"}
                 or config.get("aggregation_termination_policy") is not None) and self.derivation is None:
             raise StorageError("offline run is missing derivation metadata")
+        if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != "saved_prefix_recovery"
+                or config.get("aggregation_termination_policy") != PREFIX_TERMINATION or row["terminal_error"] is not None):
+            raise StorageError("partial-success status requires prefix recovery provenance and no terminal error")
+        if prefix_aware(self) and row["status"] == "completed":
+            raise StorageError("prefix recovery cannot claim full-grid completed status")
         self.config = WindowConfig(config["window_frames"], config["hop_frames"])
         self.policy = AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
         self.resolution_policy = ResolutionPolicy(config["resolution_policy"])
@@ -275,9 +280,9 @@ class RunStore:
             if self.derivation["method_version"] == RECOVERY_METHOD:
                 new = self.db.execute("SELECT count(*) FROM recovery_result_selections WHERE run_id = ? AND attempt_id IS NOT NULL", (self.run_id,)).fetchone()[0]
                 summary.update(newly_selected_retry_outcomes=new, reused_outcomes=sum(counts.values()) - new, recovery_id=self.derivation["recovery_id"])
-        if saved_aware(self):
+        if saved_aware(self) or prefix_aware(self):
             from .saved_recovery import completion_facts
-            summary["saved_evidence_recovery"] = completion_facts(self)
+            summary["saved_prefix_recovery" if prefix_aware(self) else "saved_evidence_recovery"] = completion_facts(self)
         return summary
 
     def complete(self):
@@ -287,7 +292,11 @@ class RunStore:
                 from .reprocessing import validate_reuse
                 validate_reuse(self, complete=True)
             summary = self.summary()
-            expected = self.config.window_count(self.source.frame_count)
+            if prefix_aware(self):
+                from .saved_recovery import prefix_input_count
+                expected = prefix_input_count(self)
+            else:
+                expected = self.config.window_count(self.source.frame_count)
             if sum(summary["counts"].values()) != expected:
                 raise ValueError(f"cannot complete run: expected {expected} results")
             if sum(summary["resolution_counts"].values()) != summary["counts"]["match"]:
@@ -302,11 +311,17 @@ class RunStore:
                     raise ValueError("every closed play requires schedule attribution")
                 for play in self.plays():
                     self.attributor.validate(self.attribution(play.play_id), play)
-            last = self.config.last_end_frame(self.source.frame_count)
-            summary.update(source_frame_count=self.source.frame_count, attempts=expected, last_window_end_frame=last, trailing_frames=self.source.frame_count - last)
-            if self.derivation is not None:
-                summary.pop("attempts")
-            self._terminal("completed", summary)
+            if prefix_aware(self):
+                summary["source_frame_count"] = self.source.frame_count
+                # Summary was constructed while running; record terminal execution success.
+                summary["saved_prefix_recovery"]["analysis_execution_complete"] = True
+                self._terminal("completed_partial", summary)
+            else:
+                last = self.config.last_end_frame(self.source.frame_count)
+                summary.update(source_frame_count=self.source.frame_count, attempts=expected, last_window_end_frame=last, trailing_frames=self.source.frame_count - last)
+                if self.derivation is not None:
+                    summary.pop("attempts")
+                self._terminal("completed", summary)
 
     def stop(self, status, error):
         if status not in {"failed", "interrupted"}:
@@ -367,13 +382,13 @@ class RunStore:
         row = self.row()
 
         def record(kind, **fields):
-            return {"schema_version": 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
         if self.derivation is not None:
             yield record("analysis_derived", derivation=self.derivation,
                          catalog_seed=load_catalog_snapshot(self.db, self.derivation["catalog_snapshot_id"]))
-        if saved_aware(self):
+        if saved_aware(self) or prefix_aware(self):
             from .saved_recovery import completion_facts, inherited_manifest
             yield record("saved_recovery_inputs", manifest=inherited_manifest(self), completion=completion_facts(self))
         if recovery_aware(self):
@@ -414,5 +429,7 @@ class RunStore:
                 yield record("song_play_closed", **asdict(play), start_time=self.source.time_at_frame(play.window.start_frame).isoformat(), end_time=self.source.time_at_frame(play.window.end_frame).isoformat())
         if row["status"] == "completed":
             yield record("run_completed", completed_at=row["ended_at"], **json.loads(row["terminal_summary_json"]))
+        elif row["status"] == "completed_partial":
+            yield record("run_partial_completed", completed_at=row["ended_at"], **json.loads(row["terminal_summary_json"]))
         elif row["status"] != "running":
             yield record("run_interrupted" if row["status"] == "interrupted" else "run_failed", stopped_at=row["ended_at"], error=row["terminal_error"], **json.loads(row["terminal_summary_json"]))

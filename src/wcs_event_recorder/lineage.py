@@ -12,6 +12,8 @@ METHOD = "saved_outcomes_reprocessing_v1"
 RECOVERY_METHOD = "selected_error_recovery_v1"
 SAVED_METHOD = "saved_evidence_recovery_v1"
 SAVED_TERMINATION = "saved_complete_grid_v1"
+PREFIX_METHOD = "saved_prefix_recovery_v1"
+PREFIX_TERMINATION = "saved_prefix_grid_v1"
 ALLOCATION = "seed_origin_uuid_v1"
 STAGE = "offline_reprocessed"
 
@@ -35,14 +37,14 @@ def derivation(db, run_id):
         return None
     item = dict(row)
     item["configuration_changes"] = json.loads(item.pop("configuration_changes_json"))
-    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD}:
+    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD, PREFIX_METHOD}:
         raise StorageError("unsupported reprocessing method")
     if item["method_version"] == RECOVERY_METHOD:
         row = db.execute("SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,)).fetchone()
         if row is None:
             raise StorageError("recovery derivation is missing its collection link")
         item["recovery_id"] = row["recovery_id"]
-    if item["method_version"] == SAVED_METHOD and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
+    if item["method_version"] in {SAVED_METHOD, PREFIX_METHOD} and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
         raise StorageError("saved-evidence recovery is missing its manifest")
     return item
 
@@ -63,6 +65,10 @@ def check_acyclic(db, run_id):
 
 def saved_aware(store):
     return store.run.configuration.get("aggregation_termination_policy") == SAVED_TERMINATION
+
+
+def prefix_aware(store):
+    return store.derivation is not None and store.derivation["method_version"] == PREFIX_METHOD
 
 
 def load_catalog_snapshot(db, snapshot_id):

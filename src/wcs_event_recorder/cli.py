@@ -18,7 +18,7 @@ from .audd import AudDRecognizer, AudDSettings, create_client, source_sha256, up
 from .diagnostics import DiagnosticError, diagnose_run, diagnostic_lines, format_result_diagnostic, result_diagnostic
 from .comparison import ComparisonError, compare_runs, comparison_lines
 from .reprocessing import ReprocessingError, reprocess_run
-from .lineage import derivation, load_catalog_snapshot
+from .lineage import PREFIX_METHOD, derivation, load_catalog_snapshot
 from .recovery import analyze_recovery, collect_recovery
 from .recovery_plan import load_plan, plan_recovery
 from .recovery_store import recovery_report
@@ -185,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         if name == "plan-saved-recovery":
             command.add_argument("--run-id", required=True)
             command.add_argument("--output", type=Path, required=True)
+            command.add_argument("--coverage", choices=("complete", "prefix"), default="complete", help="complete configured grid (default), or explicit partial saved prefix")
         else:
             command.add_argument("--plan", type=Path, required=True)
         command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
@@ -192,13 +193,19 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(args.verbose)
     try:
         if args.command == "plan-saved-recovery":
-            plan = plan_saved_recovery(args.database, args.run_id, output=args.output)
+            plan = plan_saved_recovery(args.database, args.run_id, output=args.output, coverage=args.coverage)
             inputs = plan["input"]
             coverage = inputs["coverage"]
-            print(f"Eligible parent: {args.run_id}; original status: {inputs['parent_status']}; saved/expected: {coverage['selected_windows']}/{coverage['expected_windows']}")
+            prefix = plan["method"] == PREFIX_METHOD
+            saved = coverage["input_saved_windows"] if prefix else coverage["selected_windows"]
+            expected = coverage["planned_windows"] if prefix else coverage["expected_windows"]
+            print(f"Eligible parent: {args.run_id}; original status: {inputs['parent_status']}; saved/expected: {saved}/{expected}")
             print(f"Catalog seed: {plan['catalog']['basis']}; source hash: {'inherited_not_reverified' if inputs['configuration'].get('source_audio_sha256') else 'unavailable'}")
             print(f"Plan: {args.output}; SHA-256: {plan['plan_sha256']}; provider requests: 0; no database changes")
-            print("Offline configured-window finalization; historical EOF remains unknown. No source audio or token required.")
+            if prefix:
+                print(f"Prefix only: {coverage['unobserved_input_windows']} unobserved suffix windows; final open occurrence will be right-censored. No source audio or token required.")
+            else:
+                print("Offline configured-window finalization; historical EOF remains unknown. No source audio or token required.")
             return 0
         if args.command == "recover-saved-run":
             return _saved_recovery_command(args)
@@ -323,6 +330,9 @@ def _print_summary(summary):
         facts = summary["saved_evidence_recovery"]
         coverage = facts["coverage"]
         print(f"Recovery coverage: {coverage['selected_windows']}/{coverage['expected_windows']} configured windows; original status: {facts['original_status']}; historical EOF unknown", flush=True)
+    if "saved_prefix_recovery" in summary:
+        coverage = summary["saved_prefix_recovery"]["coverage"]
+        print(f"Prefix processing: {coverage['materialized_windows']}/{coverage['input_saved_windows']} saved inputs; source-window coverage: {coverage['materialized_windows']}/{coverage['planned_windows']}; unobserved input: {coverage['unobserved_input_windows']}; uncopied input: {coverage['uncopied_input_windows']}; final open occurrence is censored", flush=True)
 
 
 def _print_context(context, source):
@@ -464,7 +474,10 @@ def _saved_recovery_command(args):
     def created(store):
         print(f"Analysis: {store.run_id}; parent: {store.derivation['parent_run_id']}; stage: {store.analysis_stage}; provider requests: 0", flush=True)
     result = recover_saved_run(args.database, load_saved_plan(args.plan), on_created=created)
-    print(f"Saved-evidence recovery completed: {result['run_id']}; original status preserved; historical EOF unknown", flush=True)
+    if "saved_prefix_recovery" in result["summary"]:
+        print(f"Saved-prefix recovery completed_partial: {result['run_id']}; original status preserved; historical EOF unknown", flush=True)
+    else:
+        print(f"Saved-evidence recovery completed: {result['run_id']}; original status preserved; historical EOF unknown", flush=True)
     _print_summary(result["summary"])
     try:
         for line in comparison_lines(compare_runs(args.database, result["parent_run_id"], result["run_id"])):
@@ -508,7 +521,7 @@ def _stored_command(args):
                 rows = db.execute("SELECT run_id, source_id, status, started_at FROM analysis_runs ORDER BY started_at, run_id").fetchall()
                 for row in rows:
                     info = derivation(db, row["run_id"])
-                    kind = "saved_evidence_recovery" if info and info["method_version"] == "saved_evidence_recovery_v1" else "selected_error_recovery" if info and info.get("recovery_id") else "offline_reprocess"
+                    kind = "saved_prefix_recovery" if info and info["method_version"] == PREFIX_METHOD else "saved_evidence_recovery" if info and info["method_version"] == "saved_evidence_recovery_v1" else "selected_error_recovery" if info and info.get("recovery_id") else "offline_reprocess"
                     suffix = f"; kind: {kind}; parent: {info['parent_run_id']}" if info else ""
                     print(f"{row['run_id']}: {row['status']}; source: {row['source_id']}; started: {row['started_at']}" + suffix)
                 print(f"{len(rows)} run(s)")

@@ -168,3 +168,19 @@ def failed_saved_parent(recovery_parent, store_factory):
         parent.result(replace(result, result_id=str(uuid4()), run_id=parent.run_id))
     parent.stop("failed", "synthetic failure before derivation")
     return parent
+
+
+@pytest.fixture
+def prefix_saved_parent(recovery_parent, store_factory):
+    from dataclasses import replace
+    from uuid import uuid4
+    from wcs_event_recorder.models import RecognitionCandidate, RecognitionStatus
+    parent = store_factory(recovery_parent.db, source=recovery_parent.source, attribution=True,
+        configuration_extra={"provider": "audd", "source_audio_sha256": recovery_parent.run.configuration["source_audio_sha256"]})
+    for ordinal, result in enumerate(recovery_parent.results()[:10], 1):
+        if ordinal == 10:
+            result = replace(result, status=RecognitionStatus.MATCH,
+                candidate=RecognitionCandidate("Unfinished Song", "New Artist"), error=None, raw_evidence={"synthetic": True})
+        parent.result(replace(result, result_id=str(uuid4()), run_id=parent.run_id))
+    parent.stop("failed", "synthetic failure after tenth observation")
+    return parent
