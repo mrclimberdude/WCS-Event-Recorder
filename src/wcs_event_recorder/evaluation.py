@@ -376,6 +376,14 @@ def evaluate_store(store, labels):
                 materialized_eligible_windows_by_occurrence={key: materialized_opportunities[key] for key in songs},
                 unobserved_suffix_eligible_windows_by_occurrence={key: opportunities[key] - input_opportunities[key] for key in songs},
                 occurrences_without_input_opportunities=sorted(key for key in songs if opportunities[key] and not input_opportunities[key]))
+    from .collection_analysis import collection_facts
+    selection = collection_facts(store)
+    if selection is not None:
+        report.update(schema_version=6, collection_recovery=selection)
+    from .checkpoints import checkpoint_facts
+    captured = checkpoint_facts(store)
+    if captured is not None:
+        report.update(schema_version=7, checkpoint_recovery=captured)
     return report
 
 

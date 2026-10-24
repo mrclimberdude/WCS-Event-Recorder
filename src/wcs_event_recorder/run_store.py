@@ -14,7 +14,7 @@ from .attribution_store import attribution_document, context_summary, load_attri
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
-from .lineage import PREFIX_METHOD, PREFIX_TERMINATION, RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
+from .lineage import CHECKPOINT_PREFIX_METHOD, COLLECTION_METHODS, PREFIX_METHOD, PREFIX_TERMINATION, RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
 from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
@@ -30,10 +30,10 @@ class RunStore:
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
-        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery"}
+        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery", "incomplete_collection_recovery", "checkpoint_prefix_recovery", "checkpoint_complete_recovery", "checkpoint_collection_recovery"}
                 or config.get("aggregation_termination_policy") is not None) and self.derivation is None:
             raise StorageError("offline run is missing derivation metadata")
-        if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != "saved_prefix_recovery"
+        if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != ("checkpoint_prefix_recovery" if self.derivation and self.derivation["method_version"] == CHECKPOINT_PREFIX_METHOD else "saved_prefix_recovery")
                 or config.get("aggregation_termination_policy") != PREFIX_TERMINATION or row["terminal_error"] is not None):
             raise StorageError("partial-success status requires prefix recovery provenance and no terminal error")
         if prefix_aware(self) and row["status"] == "completed":
@@ -129,9 +129,13 @@ class RunStore:
                     raise ValueError("reused outcome must reference the ordered parent result")
                 if parent is not None:
                     selected = result_from_row(parent)
-                    if self.derivation["method_version"] == RECOVERY_METHOD:
-                        from .recovery_store import selected_result, session_for_analysis
-                        selected, attempt_id = selected_result(session_for_analysis(self.db, self.run_id), count + 1, selected)
+                    if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
+                        if self.derivation["method_version"] in COLLECTION_METHODS:
+                            from .collection_analysis import selected_collection_result
+                            selected, attempt_id = selected_collection_result(self, count + 1, selected)
+                        else:
+                            from .recovery_store import selected_result, session_for_analysis
+                            selected, attempt_id = selected_result(session_for_analysis(self.db, self.run_id), count + 1, selected)
                 if parent is None or payload_digest(selected) != payload_digest(result):
                     raise ValueError("reused outcome must preserve its committed parent payload")
                 parent_result_id = parent["result_id"]
@@ -151,7 +155,7 @@ class RunStore:
                 json_text(dict(result.raw_evidence)), result.error, self._next_event(),
             ))
             if parent is not None:
-                if self.derivation["method_version"] == RECOVERY_METHOD:
+                if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
                     self.db.execute("INSERT INTO recovery_result_selections VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
                         self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id,
                         self.derivation["recovery_id"], count + 1, attempt_id, payload_digest(result)))
@@ -277,12 +281,20 @@ class RunStore:
             summary["context"] = context_summary(self.db, self.run_id)
         if self.derivation is not None:
             summary.update(reused_outcomes=sum(counts.values()), new_provider_requests=0)
-            if self.derivation["method_version"] == RECOVERY_METHOD:
+            if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
                 new = self.db.execute("SELECT count(*) FROM recovery_result_selections WHERE run_id = ? AND attempt_id IS NOT NULL", (self.run_id,)).fetchone()[0]
                 summary.update(newly_selected_retry_outcomes=new, reused_outcomes=sum(counts.values()) - new, recovery_id=self.derivation["recovery_id"])
         if saved_aware(self) or prefix_aware(self):
             from .saved_recovery import completion_facts
             summary["saved_prefix_recovery" if prefix_aware(self) else "saved_evidence_recovery"] = completion_facts(self)
+        from .collection_analysis import collection_facts
+        selection = collection_facts(self)
+        if selection is not None:
+            summary["collection_recovery"] = selection
+        from .checkpoints import checkpoint_facts
+        captured = checkpoint_facts(self)
+        if captured is not None:
+            summary["checkpoint_recovery"] = captured
         return summary
 
     def complete(self):
@@ -381,8 +393,13 @@ class RunStore:
         """Yield historical or method-specific records in a consistent snapshot."""
         row = self.row()
 
+        from .collection_analysis import collection_facts
+        selection = collection_facts(self)
+        from .checkpoints import checkpoint_facts
+        captured = checkpoint_facts(self)
+
         def record(kind, **fields):
-            return {"schema_version": 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 9 if captured else 8 if selection else 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
         if self.derivation is not None:
@@ -391,9 +408,13 @@ class RunStore:
         if saved_aware(self) or prefix_aware(self):
             from .saved_recovery import completion_facts, inherited_manifest
             yield record("saved_recovery_inputs", manifest=inherited_manifest(self), completion=completion_facts(self))
+        if captured:
+            yield record("checkpoint_origin", **captured)
+        if selection:
+            yield record("collection_selection_inputs", **selection)
         if recovery_aware(self):
             from .recovery_store import RecoveryStore
-            ids = set()
+            ids = {selection["collection_id"]} if selection else set()
             if self.derivation.get("recovery_id"):
                 ids.add(self.derivation["recovery_id"])
             for result in self.iter_results():

@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -234,6 +234,24 @@ def _prefix_statement(sql):
 
 
 STATEMENTS = tuple(_prefix_statement(sql) for sql in V5_STATEMENTS)
+V6_TABLES, V6_STATEMENTS = TABLES, STATEMENTS
+COLLECTION_STATEMENTS = (
+    """CREATE TABLE analysis_collection_manifests (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, recovery_id TEXT NOT NULL, plan_json TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, recovery_id) REFERENCES recovery_analysis_links(run_id, recovery_id))""",
+)
+STATEMENTS = tuple(sql.replace("'saved_prefix_recovery_v1'))", "'saved_prefix_recovery_v1','incomplete_collection_recovery_v1'))") for sql in V6_STATEMENTS) + COLLECTION_STATEMENTS
+TABLES = V6_TABLES | {"analysis_collection_manifests"}
+V7_TABLES, V7_STATEMENTS = TABLES, STATEMENTS
+CHECKPOINT_STATEMENTS = (
+    """CREATE TABLE checkpoint_workspaces (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1), checkpoint_id TEXT NOT NULL,
+        manifest_json TEXT NOT NULL)""",
+)
+STATEMENTS = tuple(sql.replace("'incomplete_collection_recovery_v1'))", "'incomplete_collection_recovery_v1','checkpoint_collection_recovery_v1','checkpoint_complete_recovery_v1','checkpoint_prefix_recovery_v1'))") for sql in V7_STATEMENTS) + CHECKPOINT_STATEMENTS
+TABLES = V7_TABLES | {"checkpoint_workspaces"}
+
 
 
 def migrate_to_v3(db):
@@ -312,7 +330,7 @@ def migrate_to_v6(db):
     import re
     independent = {"recording_sources", "schedule_snapshots", "analysis_catalog_snapshots"}
     names, statements = [], []
-    for sql in STATEMENTS:
+    for sql in V6_STATEMENTS:
         match = re.match(r"CREATE TABLE (\w+)", sql)
         if match is not None and match[1] not in independent:
             names.append(match[1])
@@ -324,3 +342,24 @@ def migrate_to_v6(db):
     if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ValueError("foreign-key integrity failed during prefix recovery migration")
     db.execute("PRAGMA user_version = 6")
+
+
+def migrate_to_v7(db):
+    names = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections", "analysis_recovery_manifests")
+    statements = tuple(sql for sql in V7_STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
+    _rebuild_graph(db, names, statements, suffix="_v7")
+    for sql in COLLECTION_STATEMENTS:
+        db.execute(sql)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during collection selection migration")
+    db.execute("PRAGMA user_version = 7")
+
+
+def migrate_to_v8(db):
+    names = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections", "analysis_recovery_manifests", "analysis_collection_manifests")
+    statements = tuple(sql for sql in STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
+    _rebuild_graph(db, names, statements, suffix="_v8")
+    for sql in CHECKPOINT_STATEMENTS:db.execute(sql)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during checkpoint migration")
+    db.execute("PRAGMA user_version = 8")

@@ -8,7 +8,9 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 steps 1/2 add safe diagnostics, offline reprocessing with preserved evidence and frozen catalog inputs, and comparison of original/revised conclusions.
 
-Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Step 3b2a now recovers terminal saved prefixes with an explicit partial-success state, censored final occurrences and coverage-aware reports. Next is evidence from incomplete collections (3b2b), then unconfirmed-history checkpoints (3b2c) and missing-window recognition (3c). Later work includes reviewed identity/schedule revisions with explicit partial-analysis eligibility, expanded resource checks beyond the completed synthetic checkpoint, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
+Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Step 3b2a now recovers terminal saved prefixes with an explicit partial-success state, censored final occurrences and coverage-aware reports. Step 3b2b adds explicit choices from incomplete terminal collections. Step 3b2c captures immutable running-history checkpoints and reconstructs them in isolated working databases. New missing-window recognition (3c) is next. Later work includes reviewed identity/schedule revisions with explicit partial-analysis eligibility, expanded resource checks beyond the completed synthetic checkpoint, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
+
+Step 3b is complete within its documented scope. The full suite passes **1,282 tests**, including 200 new cases; installed collection/checkpoint trials and private-copy compatibility checks made zero real provider requests.
 
 ## Setup and verification
 
@@ -137,6 +139,10 @@ Add `--coverage prefix` to `plan-saved-recovery` when a terminal failed/interrup
 
 See the [prefix recovery guide](docs/prefix-recovery.md) for commands, coverage interpretation, testing and remaining limits. No audio, token or provider calls are needed. Schema 6 preserves historical formats; prefix export/comparison/diagnostic-evaluation versions are 7/4/5. Verification passed 1,079 regression tests plus three additional ancestry cases, with zero real provider requests.
 
+## Recover from a running-history checkpoint
+
+Use `checkpoint-evidence` to capture a consistent private database snapshot, then `plan-checkpoint-analysis` and `analyze-checkpoint` to reconstruct it in a separate working database. The original writer may continue; capture does not declare abandonment or resume it in place. The snapshot can supply a complete grid, a censored prefix or explicit choices from a running collection. See the [checkpoint guide](docs/checkpoints.md) for commands, statuses, reports and tested limits. Current storage is schema 8; checkpoint export/comparison/diagnostic-evaluation profiles are 9/6/7.
+
 ## Start here
 
 - [Project overview](docs/project-overview.md): goals, architecture, data model, and constraints.
@@ -164,6 +170,9 @@ See the [prefix recovery guide](docs/prefix-recovery.md) for commands, coverage 
 - [Phase 2, step 3b plan](docs/phase-2-step-3b-plan.md): implemented 3b1 design; partial-evidence recovery remains 3b2.
 - [Prefix recovery guide](docs/prefix-recovery.md): offline terminal-prefix execution and honest partial coverage.
 - [Phase 2, step 3b2a plan](docs/phase-2-step-3b2a-plan.md): implemented terminal-prefix design, partial-success status, censored endings, coverage-aware reports, and verification.
+- [Incomplete collection analysis](docs/collection-analysis.md): explicit offline retry/parent choices and separate collection/analysis completion.
+- [Checkpoint recovery](docs/checkpoints.md): immutable capture of running histories and isolated full-grid/prefix/collection reconstruction.
+- [Plan to finish step 3b](docs/phase-2-step-3b-remaining-plan.md): implemented collection selection and checkpoint design, acceptance and profiling record.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -199,7 +208,10 @@ See the [prefix recovery guide](docs/prefix-recovery.md) for commands, coverage 
 |   |-- phase-2-step-3a-plan.md
 |   |-- phase-2-step-3b-plan.md
 |   |-- phase-2-step-3b2a-plan.md
-|   `-- prefix-recovery.md
+|   |-- phase-2-step-3b-remaining-plan.md
+|   |-- prefix-recovery.md
+|   |-- collection-analysis.md
+|   `-- checkpoints.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/

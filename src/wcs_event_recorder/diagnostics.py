@@ -264,6 +264,14 @@ def build_run_diagnostics(store):
                           coverage_note="Only the saved prefix is selected. Unobserved source windows and uncopied recovery input are separate; historical dispatch, EOF and billing remain unknown. No uploads occur.")
             if status == "completed_partial":
                 report["status_note"] = "Offline prefix execution finished successfully; recording coverage remains partial."
+    from .collection_analysis import collection_facts
+    selection = collection_facts(store)
+    if selection is not None:
+        report.update(schema_version=6, collection_recovery=selection)
+    from .checkpoints import checkpoint_facts
+    captured = checkpoint_facts(store)
+    if captured is not None:
+        report.update(schema_version=7, checkpoint_recovery=captured)
     return report
 
 

@@ -184,3 +184,22 @@ def prefix_saved_parent(recovery_parent, store_factory):
         parent.result(replace(result, result_id=str(uuid4()), run_id=parent.run_id))
     parent.stop("failed", "synthetic failure after tenth observation")
     return parent
+
+
+@pytest.fixture
+def incomplete_collection(recovery_parent):
+    from wcs_event_recorder.audd import AudDSettings
+    from wcs_event_recorder.models import RecognitionCandidate, RecognitionOutcome, RecognitionStatus
+    from wcs_event_recorder.recovery import create_session
+    from wcs_event_recorder.recovery_plan import plan_recovery, prepare_windows
+    parent=recovery_parent
+    plan=plan_recovery(parent.db.path,parent.run_id,[2,10,13],AudDSettings(max_requests=3))
+    with prepare_windows(plan,parent.source) as prepared:
+        with parent.db.transaction():session=create_session(parent.db,parent,plan)
+        first=prepared.items[2]
+        attempt=session.begin_attempt(2,first["window"],first["wav_sha256"],first["wav_bytes"])
+        session.save_outcome(attempt,RecognitionOutcome("audd",RecognitionStatus.MATCH,{"synthetic":True},RecognitionCandidate("Recovered Remix","New Artist")))
+        second=prepared.items[10]
+        session.begin_attempt(10,second["window"],second["wav_sha256"],second["wav_bytes"])
+    session.stop("interrupted","interrupted")
+    return session

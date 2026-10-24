@@ -20,7 +20,7 @@ from wcs_event_recorder.saved_recovery import plan_saved_recovery, recover_saved
 from wcs_event_recorder.storage import Database, StorageError
 
 
-@pytest.fixture(params=[1,2,3,4,5])
+@pytest.fixture(params=[1,2,3,4,5,6,7])
 def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
     schema_version=request.param
     schema=json.loads((Path(__file__).parent/"fixtures"/f"schema-v{schema_version}.json").read_text())
@@ -68,10 +68,28 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
         results=root.iter_results()
     for result in results: parent.result(replace(result,run_id=parent.run_id,result_id=str(uuid4())))
     parent.stop("failed","controlled historical derivation failure")
-    if schema_version==5:
+    if schema_version>=5:
         from wcs_event_recorder.saved_recovery import create_saved_analysis
         with db.transaction(): saved=create_saved_analysis(db,parent,plan_saved_recovery(db.path,parent.run_id))
         persist_results((replace(r,run_id=saved.run_id,result_id=str(uuid4())) for r in parent.results()),saved)
+    if schema_version>=6:
+        with db.transaction(): prefix=create_saved_analysis(db,parent,plan_saved_recovery(db.path,parent.run_id))
+        for r in parent.results()[:10]:prefix.result(replace(r,run_id=prefix.run_id,result_id=str(uuid4())))
+        prefix.stop("interrupted","historical prefix")
+        prefix_plan=plan_saved_recovery(db.path,prefix.run_id,coverage="prefix")
+        with db.transaction(): recovered_prefix=create_saved_analysis(db,prefix,prefix_plan)
+        persist_results((replace(r,run_id=recovered_prefix.run_id,result_id=str(uuid4())) for r in prefix.results()),recovered_prefix)
+    if schema_version==7:
+        from wcs_event_recorder.collection_analysis import create_collection_analysis,plan_collection_analysis,selected_collection_result
+        retry_plan=plan_recovery(db.path,root.run_id,[2],AudDSettings(max_requests=1))
+        with prepare_windows(retry_plan,root.source) as prepared:
+            with db.transaction(): incomplete=create_session(db,root,retry_plan)
+            item=prepared.items[2];attempt=incomplete.begin_attempt(2,item["window"],item["wav_sha256"],item["wav_bytes"])
+            incomplete.save_outcome(attempt,RecognitionOutcome("audd",RecognitionStatus.NO_MATCH,{"synthetic":True}))
+            incomplete.stop("interrupted","interrupted")
+        explicit=plan_collection_analysis(db.path,incomplete.recovery_id,[2],[])
+        with db.transaction(): collection_child=create_collection_analysis(db,explicit)
+        persist_results((replace(selected_collection_result(collection_child,i,r)[0],run_id=collection_child.run_id,result_id=str(uuid4())) for i,r in enumerate(root.results(),1)),collection_child)
     try: yield parent
     finally: db.close()
 
@@ -97,7 +115,7 @@ def test_genuine_old_schema_upgrade_preserves_every_historical_run(historical_sa
     assert parent.db.path.read_bytes() == original_bytes
     child=recover_saved_run(parent.db.path,plan)
     with Database(parent.db.path,readonly=True) as db:
-        assert db.schema_version == 6 and not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert db.schema_version == 8 and not db.execute("PRAGMA foreign_key_check").fetchall()
         assert [tuple(r) for r in db.execute("SELECT * FROM track_mappings ORDER BY service,external_id")]==mappings
         assert db.execute("SELECT sql FROM sqlite_schema WHERE name = 'one_support_play'").fetchone()
         for run_id in ids:
@@ -139,6 +157,7 @@ def test_schema5_failure_rolls_back_the_entire_migration_chain(historical_saved_
         for run_id,records in original.items(): assert list(RunStore(db,run_id).records()) == records
 
 
+@pytest.mark.parametrize("historical_saved_parent",[1,2,3,4,5],indirect=True)
 @pytest.mark.parametrize("boundary",["create","copy","drop","rename","index","integrity","marker"])
 def test_schema6_failure_rolls_back_populated_history(historical_saved_parent,monkeypatch,boundary):
     parent=historical_saved_parent
@@ -162,3 +181,45 @@ def test_schema6_failure_rolls_back_populated_history(historical_saved_parent,mo
     with Database(parent.db.path,readonly=True) as db:
         assert db.schema_version==parent.db.schema_version
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
+
+
+@pytest.mark.parametrize("historical_saved_parent",[1,2,3,4,5,6],indirect=True)
+@pytest.mark.parametrize("boundary",["create","copy","drop","rename","manifest","integrity","marker"])
+def test_schema7_rollback_all_historical_versions(historical_saved_parent,monkeypatch,boundary):
+    parent=historical_saved_parent
+    original=parent.db.path.read_bytes();execute=Database.execute
+    def fail(self,sql,parameters=()):
+        if ((boundary=="create" and sql.startswith("CREATE TABLE analysis_derivations_v7"))
+            or (boundary=="copy" and sql.startswith("INSERT INTO analysis_recovery_manifests_v7"))
+            or (boundary=="drop" and sql=="DROP TABLE analysis_recovery_manifests")
+            or (boundary=="rename" and sql=="ALTER TABLE analysis_derivations_v7 RENAME TO analysis_derivations")
+            or (boundary=="manifest" and sql.startswith("CREATE TABLE analysis_collection_manifests"))
+            or (boundary=="integrity" and sql=="PRAGMA foreign_key_check" and self.connection.execute("PRAGMA user_version").fetchone()[0]==6)
+            or (boundary=="marker" and sql=="PRAGMA user_version = 7")):
+            raise StorageError("controlled schema7 failure")
+        return execute(self,sql,parameters)
+    monkeypatch.setattr(Database,"execute",fail)
+    with pytest.raises(StorageError,match="schema7 failure"):
+        with Database(parent.db.path):pass
+    monkeypatch.setattr(Database,"execute",execute)
+    assert parent.db.path.read_bytes()==original
+
+
+@pytest.mark.parametrize("boundary",["create","copy","drop","rename","workspace","integrity","marker"])
+def test_schema8_rollback_all_historical_versions(historical_saved_parent,monkeypatch,boundary):
+    parent=historical_saved_parent;original=parent.db.path.read_bytes();execute=Database.execute
+    def fail(self,sql,parameters=()):
+        if ((boundary=="create" and sql.startswith("CREATE TABLE analysis_derivations_v8"))
+            or (boundary=="copy" and sql.startswith("INSERT INTO analysis_collection_manifests_v8"))
+            or (boundary=="drop" and sql=="DROP TABLE analysis_collection_manifests")
+            or (boundary=="rename" and sql=="ALTER TABLE analysis_derivations_v8 RENAME TO analysis_derivations")
+            or (boundary=="workspace" and sql.startswith("CREATE TABLE checkpoint_workspaces"))
+            or (boundary=="integrity" and sql=="PRAGMA foreign_key_check" and self.connection.execute("PRAGMA user_version").fetchone()[0]==7)
+            or (boundary=="marker" and sql=="PRAGMA user_version = 8")):
+            raise StorageError("controlled schema8 failure")
+        return execute(self,sql,parameters)
+    monkeypatch.setattr(Database,"execute",fail)
+    with pytest.raises(StorageError,match="schema8 failure"):
+        with Database(parent.db.path):pass
+    monkeypatch.setattr(Database,"execute",execute)
+    assert parent.db.path.read_bytes()==original

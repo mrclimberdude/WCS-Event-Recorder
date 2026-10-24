@@ -12,6 +12,12 @@ METHOD = "saved_outcomes_reprocessing_v1"
 RECOVERY_METHOD = "selected_error_recovery_v1"
 SAVED_METHOD = "saved_evidence_recovery_v1"
 SAVED_TERMINATION = "saved_complete_grid_v1"
+COLLECTION_METHOD = "incomplete_collection_recovery_v1"
+CHECKPOINT_COLLECTION_METHOD = "checkpoint_collection_recovery_v1"
+CHECKPOINT_COMPLETE_METHOD = "checkpoint_complete_recovery_v1"
+CHECKPOINT_PREFIX_METHOD = "checkpoint_prefix_recovery_v1"
+CHECKPOINT_METHODS = {CHECKPOINT_COLLECTION_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}
+COLLECTION_METHODS = {COLLECTION_METHOD, CHECKPOINT_COLLECTION_METHOD}
 PREFIX_METHOD = "saved_prefix_recovery_v1"
 PREFIX_TERMINATION = "saved_prefix_grid_v1"
 ALLOCATION = "seed_origin_uuid_v1"
@@ -37,14 +43,14 @@ def derivation(db, run_id):
         return None
     item = dict(row)
     item["configuration_changes"] = json.loads(item.pop("configuration_changes_json"))
-    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD, PREFIX_METHOD}:
+    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD, PREFIX_METHOD, *COLLECTION_METHODS, *CHECKPOINT_METHODS}:
         raise StorageError("unsupported reprocessing method")
-    if item["method_version"] == RECOVERY_METHOD:
+    if item["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
         row = db.execute("SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,)).fetchone()
         if row is None:
             raise StorageError("recovery derivation is missing its collection link")
         item["recovery_id"] = row["recovery_id"]
-    if item["method_version"] in {SAVED_METHOD, PREFIX_METHOD} and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
+    if item["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD} and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
         raise StorageError("saved-evidence recovery is missing its manifest")
     return item
 
@@ -68,7 +74,7 @@ def saved_aware(store):
 
 
 def prefix_aware(store):
-    return store.derivation is not None and store.derivation["method_version"] == PREFIX_METHOD
+    return store.derivation is not None and store.derivation["method_version"] in {PREFIX_METHOD, CHECKPOINT_PREFIX_METHOD}
 
 
 def load_catalog_snapshot(db, snapshot_id):
@@ -94,7 +100,7 @@ def capture_catalog(db):
 
 def reuse_link(db, run_id, result_id):
     info = derivation(db, run_id)
-    table = "recovery_result_selections" if info is not None and info["method_version"] == RECOVERY_METHOD else "reused_result_links"
+    table = "recovery_result_selections" if info is not None and info["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS} else "reused_result_links"
     row = db.execute(f"SELECT * FROM {table} WHERE run_id = ? AND result_id = ?", (run_id, result_id)).fetchone()
     if row is None:
         raise StorageError("missing reused result origin link")

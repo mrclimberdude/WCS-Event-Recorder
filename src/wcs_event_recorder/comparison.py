@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .attribution_store import attribution_document
 from .codecs import json_text
-from .lineage import PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
+from .lineage import CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
 from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_closed_evidence, validate_parent, validate_reuse
 from .run_store import RunStore
 from .storage import Database
@@ -81,7 +81,7 @@ def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
     prefix = prefix_aware(child)
-    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD}
+    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}
     if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
@@ -190,6 +190,14 @@ def build_comparison(parent, child):
                       semantic_equivalent=None, full_source_coverage=False,
                       equivalence_scope="Compare only selected prefix evidence and available conclusions; full-source equivalence is not assessable.",
                       occurrence_interpretation="Conclusions reconstructed from the saved prefix. Missing suffix observations are not no-matches; the final open occurrence is censored.")
+    from .collection_analysis import collection_facts
+    selection = collection_facts(child)
+    if selection is not None:
+        report.update(schema_version=5, collection_recovery=selection)
+    from .checkpoints import checkpoint_facts
+    captured = checkpoint_facts(child)
+    if captured is not None:
+        report.update(schema_version=6, checkpoint_recovery=captured)
     return report
 
 
@@ -214,8 +222,8 @@ def comparison_lines(report):
     yield f"Occurrences: {report['occurrence_summary']}; new provider requests during analysis: 0" if report["schema_version"] >= 2 else f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
     if report["schema_version"] >= 2:
         yield f"Changed window outcomes: {len(report['outcome_changes'])}; newly selected retry outcomes: {report['newly_selected_retry_outcomes']}; observation provenance identifies collection separately."
-    if report["schema_version"] >= 3:
+    if "baseline_derivation_complete" in report:
         yield f"Baseline derivation complete: {report['baseline_derivation_complete']}; recovered decisions: {len(report['recovered_resolution_decisions'])}; historical EOF unknown."
-    if report["schema_version"] == 4:
+    if "saved_prefix_recovery" in report:
         coverage = report["saved_prefix_recovery"]["coverage"]
         yield f"Partial source-window coverage: {coverage['materialized_windows']}/{coverage['planned_windows']}; unobserved input windows: {coverage['unobserved_input_windows']}; final open occurrence is censored."

@@ -23,6 +23,8 @@ from .recovery import analyze_recovery, collect_recovery
 from .recovery_plan import load_plan, plan_recovery
 from .recovery_store import recovery_report
 from .saved_recovery import load_saved_plan, plan_saved_recovery, recover_saved_run
+from .collection_analysis import analyze_collection_plan, plan_collection_analysis
+from .checkpoints import analyze_checkpoint, create_checkpoint, load_checkpoint, plan_checkpoint_analysis
 from .evaluation import EvaluationError, evaluate_run
 from .inputs import InputValidationError, load_json, load_recording, parse_schedule, validate_inputs, validate_schedule
 from .logging_config import configure_logging
@@ -189,9 +191,79 @@ def main(argv: list[str] | None = None) -> int:
         else:
             command.add_argument("--plan", type=Path, required=True)
         command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    for name in ("plan-collection-analysis", "analyze-collection-plan"):
+        command = commands.add_parser(name, help="explicit offline choices from an incomplete collection; no uploads")
+        command.add_argument("--database", type=Path, required=True)
+        if name == "plan-collection-analysis":
+            command.add_argument("--recovery-id", required=True)
+            command.add_argument("--use-retry", type=int, action="append", default=[])
+            command.add_argument("--retain-parent", type=int, action="append", default=[])
+            command.add_argument("--output", type=Path, required=True)
+        else:
+            command.add_argument("--plan", type=Path, required=True)
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    for name in ("checkpoint-evidence", "show-checkpoint", "plan-checkpoint-analysis", "analyze-checkpoint"):
+        command = commands.add_parser(name, help="capture or reconstruct immutable checkpoint evidence offline")
+        if name == "checkpoint-evidence":
+            command.add_argument("--database", type=Path, required=True)
+            subject = command.add_mutually_exclusive_group(required=True)
+            subject.add_argument("--run-id")
+            subject.add_argument("--recovery-id")
+            command.add_argument("--output", type=Path, required=True)
+            command.add_argument("--timeout", type=float, default=10.0)
+        else:
+            command.add_argument("--checkpoint", type=Path, required=True)
+        if name == "plan-checkpoint-analysis":
+            command.add_argument("--use-retry", type=int, action="append", default=[])
+            command.add_argument("--retain-parent", type=int, action="append", default=[])
+            command.add_argument("--output", type=Path, required=True)
+        if name == "analyze-checkpoint":
+            command.add_argument("--database", type=Path, required=True)
+            command.add_argument("--plan", type=Path, required=True)
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command == "checkpoint-evidence":
+            manifest = create_checkpoint(args.database, args.output, run_id=args.run_id, recovery_id=args.recovery_id, timeout=args.timeout)
+            print(f"Checkpoint: {manifest['checkpoint_id']}; captured {manifest['kind']}: {manifest['subject_id']}; captured status: running; original writer/completion remain unconfirmed")
+            print(f"Published: {args.output}; {manifest['snapshot_bytes']} snapshot bytes; provider requests: 0")
+            return 0
+        if args.command == "show-checkpoint":
+            print(json.dumps(load_checkpoint(args.checkpoint), indent=2, allow_nan=False))
+            return 0
+        if args.command == "plan-checkpoint-analysis":
+            plan = plan_checkpoint_analysis(args.checkpoint, use_retry=args.use_retry, retain_parent=args.retain_parent, output=args.output)
+            print(f"Checkpoint plan: {args.output}; checkpoint: {plan['checkpoint_id']}; method: {plan['analysis']['method']}; provider requests: 0; no database changes")
+            return 0
+        if args.command == "analyze-checkpoint":
+            result = analyze_checkpoint(args.checkpoint, args.database, load_saved_plan(args.plan), on_created=lambda child: print(f"Run: {child.run_id}", flush=True))
+            status = "completed_partial" if "saved_prefix_recovery" in result["summary"] else "completed"
+            print(f"Checkpoint analysis {status}: {result['run_id']}; captured status running; current original writer/completion unknown; provider requests: 0")
+            _print_summary(result["summary"])
+            try:
+                for line in comparison_lines(compare_runs(args.database, result["parent_run_id"], result["run_id"])):
+                    print(line)
+            except (ComparisonError, OSError) as exc:
+                logger.error("Analysis %s %s; comparison failed: %s. Rerun compare-runs in the checkpoint working database.", result["run_id"], status, exc)
+                return 1
+            return 0
+        if args.command == "plan-collection-analysis":
+            plan = plan_collection_analysis(args.database, args.recovery_id, args.use_retry, args.retain_parent, output=args.output)
+            print(f"Collection: {args.recovery_id}; status: {plan['input']['collection']['status']}; explicit retry choices: {len(plan['use_retry'])}; full selected grid: {len(plan['input']['observations'])}; provider requests: 0")
+            print(f"Plan: {args.output}; SHA-256: {plan['plan_sha256']}; no database changes")
+            return 0
+        if args.command == "analyze-collection-plan":
+            result = analyze_collection_plan(args.database, load_saved_plan(args.plan), on_created=lambda child: print(f"Run: {child.run_id}", flush=True))
+            print(f"Collection analysis completed: {result['run_id']}; collection status preserved; provider requests: 0")
+            _print_summary(result["summary"])
+            try:
+                for line in comparison_lines(compare_runs(args.database, result["parent_run_id"], result["run_id"])):
+                    print(line)
+            except (ComparisonError, OSError) as exc:
+                logger.error("Analysis %s completed; comparison failed: %s. Rerun compare-runs with saved IDs.", result["run_id"], exc)
+                return 1
+            return 0
         if args.command == "plan-saved-recovery":
             plan = plan_saved_recovery(args.database, args.run_id, output=args.output, coverage=args.coverage)
             inputs = plan["input"]
@@ -522,6 +594,8 @@ def _stored_command(args):
                 for row in rows:
                     info = derivation(db, row["run_id"])
                     kind = "saved_prefix_recovery" if info and info["method_version"] == PREFIX_METHOD else "saved_evidence_recovery" if info and info["method_version"] == "saved_evidence_recovery_v1" else "selected_error_recovery" if info and info.get("recovery_id") else "offline_reprocess"
+                    if info:
+                        kind = json.loads(db.execute("SELECT configuration_json FROM analysis_runs WHERE run_id=?", (row["run_id"],)).fetchone()[0]).get("analysis_kind", kind)
                     suffix = f"; kind: {kind}; parent: {info['parent_run_id']}" if info else ""
                     print(f"{row['run_id']}: {row['status']}; source: {row['source_id']}; started: {row['started_at']}" + suffix)
                 print(f"{len(rows)} run(s)")

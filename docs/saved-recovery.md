@@ -44,7 +44,7 @@ A derived parent inherits its frozen starting catalog. For an original run witho
   --plan data/reports/saved-recovery-plan.json
 ```
 
-Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 6. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
+Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 8. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
 
 Each unchanged normalized outcome commits with its immediate-parent link before resolution. Catalog additions commit with their decisions; closed plays commit with all evidence/context; terminal completion follows coverage checks. No recognition attempt or retry collection is created, and zero provider requests occur. Originals retain their status, rows, summaries, snapshots and export bytes.
 
@@ -78,7 +78,7 @@ The dedicated recovery comparison accepts the unsuccessful immediate parent and 
 
 Observation origins retain actual original/retry timestamps, request settings and latency. Diagnostic facts do not become more specific through reuse. Evaluation scores each selected observation once against independent labels, marks it as reused evidence rather than another acoustic trial, and retains termination/timing limitations. An unavailable source audio hash still prevents hash-bound evaluation.
 
-JSONL version 6 records the recovery manifest and completion facts, including in descendants. Comparison schema 3 includes recovery/completion scope; diagnostic/evaluation schema 4 carries the same limitation. Existing original, pure-derived and selected-error historical exports/reports keep their versions and bytes. New/writable databases use schema 6; read-only inspection supports schemas 1 through 6 without migrating.
+JSONL version 6 records the recovery manifest and completion facts, including in descendants. Comparison schema 3 includes recovery/completion scope; diagnostic/evaluation schema 4 carries the same limitation. Existing original, pure-derived and selected-error historical exports/reports keep their versions and bytes. New/writable databases use schema 8; read-only inspection supports schemas 1 through 8 without migrating.
 
 ## Verification and limits
 

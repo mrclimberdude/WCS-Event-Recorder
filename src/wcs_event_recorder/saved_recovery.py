@@ -11,7 +11,7 @@ from uuid import uuid4
 from .analysis import new_run
 from .codecs import json_text, result_from_document, source_document, track_from_document
 from .inputs import load_json, parse_schedule, validate_schedule
-from .lineage import ALLOCATION, PREFIX_METHOD, PREFIX_TERMINATION, SAVED_METHOD, SAVED_TERMINATION, capture_catalog, check_acyclic, digest, load_catalog_snapshot, observation_origin, payload_digest, reuse_link
+from .lineage import ALLOCATION, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, PREFIX_METHOD, PREFIX_TERMINATION, SAVED_METHOD, SAVED_TERMINATION, capture_catalog, check_acyclic, digest, load_catalog_snapshot, observation_origin, payload_digest, reuse_link
 from .persistence import persist_results
 from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_parent, validate_reuse
 from .resolution import NORMALIZATION_VERSION
@@ -29,7 +29,7 @@ def _aware(value):
         raise SavedRecoveryError("saved processing timestamps must be timezone-aware")
 
 
-def inspect_failed(parent, *, coverage="complete"):
+def inspect_failed(parent, *, coverage="complete", _running=False):
     """Validate raw inputs, deliberately independent of unfinished conclusions."""
     check_acyclic(parent.db, parent.run_id)
     if coverage not in {"complete", "prefix"}:
@@ -40,11 +40,16 @@ def inspect_failed(parent, *, coverage="complete"):
         raise SavedRecoveryError("parent is completed; use reprocess-run (or analyze-recovery for a completed collection)")
     if row["status"] == "completed_partial":
         raise SavedRecoveryError("prefix analysis already finished; repeat its original frozen prefix plan to reanalyze")
-    if row["status"] == "running":
+    if row["status"] == "running" and not _running:
         raise SavedRecoveryError("parent is running; its writer and completion are unconfirmed; no force/resume is supported")
-    if row["status"] not in {"failed", "interrupted"}:
+    if row["status"] not in ({"running"} if _running else {"failed", "interrupted"}):
         raise SavedRecoveryError("saved recovery requires a terminal failed/interrupted parent")
-    _aware(row["ended_at"])
+    if _running:
+        if row["ended_at"] is not None or row["terminal_error"] is not None or row["terminal_summary_json"] is not None:
+            raise SavedRecoveryError("captured running analysis has inconsistent terminal facts")
+        _aware(row["started_at"])
+    else:
+        _aware(row["ended_at"])
     if config.get("boundary_method", "recognition_window_envelope_v1") != "recognition_window_envelope_v1":
         raise SavedRecoveryError("unsupported saved boundary method")
     terminations = {None, SAVED_TERMINATION, PREFIX_TERMINATION} if prefix else {None, SAVED_TERMINATION}
@@ -88,7 +93,7 @@ def inspect_failed(parent, *, coverage="complete"):
         raise SavedRecoveryError(f"complete saved coverage required: {len(observations)}/{expected} windows; select --coverage prefix for a nonempty saved prefix")
     if parent.derivation is not None:
         ancestor = validate_reuse(parent, complete=not prefix)
-        if parent.derivation["method_version"] not in {SAVED_METHOD, PREFIX_METHOD}:
+        if parent.derivation["method_version"] not in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}:
             validate_parent(ancestor)
     last = parent.config.last_end_frame(parent.source.frame_count)
     coverage = {"expected_windows": expected, "selected_windows": expected, "missing_windows": 0,
@@ -144,24 +149,38 @@ def _catalog(parent, supplied=None):
     return supplied
 
 
-def make_saved_plan(parent, *, catalog=None, coverage="complete"):
-    inputs = inspect_failed(parent, coverage=coverage)
+def make_saved_plan(parent, *, catalog=None, coverage="complete", checkpoint=None):
+    if checkpoint is not None:
+        from .checkpoints import verify_subject
+        verify_subject(parent.db, checkpoint, kind="analysis", subject_id=parent.run_id)
+    inputs = inspect_failed(parent, coverage=coverage, _running=checkpoint is not None)
     prefix = coverage == "prefix"
     method, termination = (PREFIX_METHOD, PREFIX_TERMINATION) if prefix else (SAVED_METHOD, SAVED_TERMINATION)
+    if checkpoint is not None:
+        method = CHECKPOINT_PREFIX_METHOD if prefix else CHECKPOINT_COMPLETE_METHOD
     plan = {"schema_version": 1, "method": method, "input": inputs, "input_sha256": digest(inputs),
         "catalog": _catalog(parent, catalog), "planned_provider_requests": 0,
         "analysis_configuration": {**{k: parent.run.configuration[k] for k in INHERITED_SETTINGS if k in parent.run.configuration},
             "analysis_kind": "saved_prefix_recovery" if prefix else "saved_evidence_recovery", "reprocessing_method": method,
             "track_id_allocation_policy": ALLOCATION, "aggregation_termination_policy": termination}}
+    if checkpoint is not None:
+        plan["checkpoint"] = checkpoint
+        plan["analysis_configuration"]["analysis_kind"] = "checkpoint_prefix_recovery" if prefix else "checkpoint_complete_recovery"
     plan["plan_sha256"] = digest(plan)
     return plan
 
 
 def validate_saved_plan(parent, plan):
     try:
-        if plan["method"] not in {SAVED_METHOD, PREFIX_METHOD}:
+        if plan["method"] not in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}:
             raise SavedRecoveryError("unsupported saved recovery method")
-        expected = make_saved_plan(parent, catalog=plan["catalog"], coverage="prefix" if plan["method"] == PREFIX_METHOD else "complete")
+        checkpoint = plan.get("checkpoint")
+        if plan["method"] in {CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}:
+            from .checkpoints import verify_workspace
+            verify_workspace(parent.db, checkpoint)
+        elif checkpoint is not None:
+            raise SavedRecoveryError("checkpoint provenance requires its declared method")
+        expected = make_saved_plan(parent, catalog=plan["catalog"], coverage="prefix" if plan["method"] in {PREFIX_METHOD, CHECKPOINT_PREFIX_METHOD} else "complete", checkpoint=checkpoint)
         if json_text(plan, sort_keys=True) != json_text(expected, sort_keys=True):
             raise SavedRecoveryError("saved recovery plan is malformed or stale; create a fresh plan")
         if parent.db.schema_version >= 3:
@@ -265,7 +284,7 @@ def validate_saved_analysis(child, *, complete):
 
 
 def planned_input_count(plan):
-    key = "input_saved_windows" if plan["method"] == PREFIX_METHOD else "expected_windows"
+    key = "input_saved_windows" if plan["method"] in {PREFIX_METHOD, CHECKPOINT_PREFIX_METHOD} else "expected_windows"
     return plan["input"]["coverage"][key]
 
 
@@ -279,7 +298,7 @@ def inherited_manifest(store):
     check_acyclic(store.db, store.run_id)
     current = store
     while current.derivation is not None:
-        if current.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD}:
+        if current.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}:
             validate_saved_analysis(current, complete=current.row()["status"] in {"completed", "completed_partial"})
             row = store.db.execute("SELECT plan_json FROM analysis_recovery_manifests WHERE run_id = ?", (current.run_id,)).fetchone()
             if row is None:
@@ -293,7 +312,7 @@ def completion_facts(store):
     manifest = inherited_manifest(store)
     plan = manifest["plan"]
     selected = store.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (store.run_id,)).fetchone()[0]
-    if plan["method"] == PREFIX_METHOD:
+    if plan["method"] in {PREFIX_METHOD, CHECKPOINT_PREFIX_METHOD}:
         count = plan["input"]["coverage"]["input_saved_windows"]
         planned = plan["input"]["coverage"]["planned_windows"]
         window, hop = store.config.window_frames, store.config.hop_frames
