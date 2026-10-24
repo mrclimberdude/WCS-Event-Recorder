@@ -2,9 +2,9 @@
 
 ## Status and purpose
 
-Implementation plan following the read-only code audit. **Releases A and B are implemented; final Release B verification is recorded below.** Read operations share evidence within one read-only transaction, collection/result progress uses guarded cursors, and planners release database reads before hashing audio. Shared dispatch and method/report routing now support indexed evaluation, catalog mutation rollback and focused CLI modules. Storage redesign remains the separate Release C decision. Phase 2 recovery through step 3c is implemented; the pre-cleanup full regression baseline is **1,413 passing tests in 485.45 seconds**. New databases use schema 9. See the [overall roadmap](implementation-plan.md), [benchmark guide](benchmarks.md) and [step-3c verification record](phase-2-step-3c-plan.md#verification-record).
+Implementation plan following the read-only code audit. **Releases A/B and the bounded Release C decision are complete; verification records are below.** Read operations share evidence within one read-only transaction, collection/result progress uses guarded cursors, and planners release database reads before hashing audio. Shared dispatch and method/report routing now support indexed evaluation, catalog mutation rollback and focused CLI modules. Release C keeps the existing format for the measured developer workloads; a larger event trial needs its own declared and measured envelope. Phase 2 recovery through step 3c is implemented; the pre-cleanup full regression baseline is **1,413 passing tests in 485.45 seconds**. New databases use schema 9. See the [overall roadmap](implementation-plan.md), [benchmark guide](benchmarks.md) and [step-3c verification record](phase-2-step-3c-plan.md#verification-record).
 
-Releases A/B satisfy the runtime and maintainability prerequisite for reviewed identity corrections. Release C remains a separate measured storage decision alongside scale preparation; a new format is conditional. The objective is less repeated work and fewer duplicated responsibilities, with unchanged evidence and user-visible contracts. Reducing line count alone is not an acceptance criterion.
+Releases A/B satisfy the runtime and maintainability prerequisite for reviewed identity corrections. Release C completed its measured storage decision with the current format; see the [accepted decision](decisions/release-c-storage.md) and [operating guidance](release-c-operating-limits.md). The objective is less repeated work and fewer duplicated responsibilities, with unchanged evidence and user-visible contracts. Reducing line count alone is not an acceptance criterion.
 
 ## Evidence and priorities
 
@@ -237,18 +237,20 @@ Deliver the following chunks separately, in this order:
 
 ## Release C: measured storage decision
 
+The [detailed Release C execution plan](release-c-plan.md) specifies implementation slices, file responsibilities, fixture invariants, metric definitions, decision branches and verification commands for an implementing agent. This section remains the scope and acceptance summary.
+
 **Reassessment after A/B:** whole-database checkpoint capture and workspace creation still copy complete SQLite images. Saved/checkpoint/continuation plans still embed frozen inputs, and frozen catalog views still load their full seeds. A/B did not change these storage contracts. They did remove repeated read work, absent-window enumeration and full-catalog rollback copies; those earlier costs must not be attributed to storage or used to justify a redesign now.
 
-The new baseline is **1,519 passing tests**, **174 retained report outputs**, **228 protected files** and the measurements in `data/benchmarks/release-b-final.json`. Read SQL/JSON counts match Release A, evaluation is indexed, and committed-write timings remain mixed. Read caches and interval indexes trade memory for CPU; the catalog journal does not eliminate retained seed memory. None of these results establishes the savings or full-event limits of a different on-disk format.
+The Release C starting baseline was **1,519 passing tests**, **174 retained report outputs**, **228 protected files** and the measurements in `data/benchmarks/release-b-final.json`. Read SQL/JSON counts match Release A, evaluation is indexed, and committed-write timings remain mixed. Read caches and interval indexes trade memory for CPU; the catalog journal does not eliminate retained seed memory. None of these results establishes the savings or full-event limits of a different on-disk format.
 
-Keep whole-database checkpoints as the supported default while C1/C2 establish whether a change is needed. Release C can finish with a documented keep-current decision and tested operating limits. It does not block identity/schedule corrections. New storage work starts with C1 rather than a presumed format change.
+**Completed outcome:** keep whole-database checkpoints and full frozen plans/seeds for the measured developer workloads. C1/C2/C4 passed; C3 was skipped because no alternative demonstrated sufficient net benefit. The [measurement record](release-c-measurements.md), [dependency inventory](release-c-dependency-inventory.md), [decision](decisions/release-c-storage.md) and [operating guidance](release-c-operating-limits.md) document that boundary. Larger-event requirements remain unassessed; reviewed identity/schedule corrections are the next feature work.
 
 | Chunk | Deliverable | Status |
 | --- | --- | --- |
-| C1 | Storage and checkpoint-I/O baseline on the A/B implementation | Next |
-| C2 | Dependency/capability inventory and recorded format decision | Planned; no format selected |
-| C3 | One bounded format implementation, if C2 justifies it | Conditional |
-| C4 | Compatibility verification and operating guidance for the chosen outcome | Required |
+| C1 | Storage and checkpoint-I/O baseline on the A/B implementation | Complete: 120 jobs / 600 isolated passes |
+| C2 | Dependency/capability inventory and recorded format decision | Complete: keep current within measured scope |
+| C3 | One bounded format implementation, if C2 justifies it | Skipped as planned; no candidate selected |
+| C4 | Compatibility verification and operating guidance for the chosen outcome | Complete: 1,549 tests, corpus/help compatibility and guidance |
 
 ### C1. Measure remaining storage costs independently
 
@@ -308,7 +310,7 @@ Keep whole-database checkpoints as the supported default while C1/C2 establish w
 - Compare matching workloads before/after, including SQL/JSON work, runtime, process memory and storage. Record regressions or rejected approaches rather than reporting only favorable metrics.
 - Update the README, operational guides and roadmap as implementation lands. Keep planned targets distinct from verified improvements.
 
-Releases A and B are implemented. The next feature milestone is reviewed identity correction, followed by schedule revisions and longer operational trials. Release C remains a separate measured storage/format decision; releases A/B do not introduce compaction or a new schema.
+Releases A/B and the bounded Release C decision are complete. The next feature milestone is reviewed identity correction, followed by schedule revisions and longer operational trials. The current storage format is retained; remeasure a declared larger-trial envelope before relying on it. No release introduces compaction or a new schema.
 
 ## A1 verification record
 
@@ -416,3 +418,22 @@ This establishes constant rollback preparation for unchanged resolutions. Change
 | Missing-analysis planning | 83 | 2,035 | 0.2367 / 0.2550 | 6.828 |
 
 Peak traced allocations are effectively unchanged. Timing includes both small increases and decreases; missing-analysis planning is about 7.7% slower in this final sample set despite unchanged SQL/row/JSON work and allocation bounds. These measurements do not establish a read-path speedup for B1/B4. The improvements claimed here are bounded evaluation work and eliminated full-catalog rollback copies. Full-event service latency, longer-recording throughput, private acoustic acceptance and storage compaction remain separate work.
+
+
+## Release C verification record
+
+C0/C1/C2/C4 are complete. The accepted [storage decision](decisions/release-c-storage.md) is **keep_current** for the measured developer workloads; C3 was skipped using the plan's explicit branch. The [execution ledger](release-c-plan.md#implementation-ledger), [dependency inventory](release-c-dependency-inventory.md), [measurements](release-c-measurements.md) and [operating guidance](release-c-operating-limits.md) give the scope and evidence. Production source, schema 9, command behavior and analysis policy are unchanged.
+
+The new offline storage tool runs real installed APIs on protected synthetic fixtures and private targets with explicit byte/free-space/deadline/case limits. It separates normal timing, work counters and Python allocation tracing; records SQLite/page/table/JSON and file-role inventories; validates semantic outputs; and retains structured failures without publishing them as success. Supplemental controls isolate equal-digest ancestry and verified owned-copy cleanup.
+
+All **120 final jobs / 600 isolated passes** succeeded: 15 standard cases, seven mapped smoke controls and three corrected ancestry controls. Three ordinary samples and separate instrumentation/allocation passes were used for each job. The initial ancestry fixtures varied adapter elapsed times and schedule IDs, so their reports remain preliminary for depth attribution. The replacement control preserves source/outcome/seed digests; this is a C1 fixture correction, not a production change or substantial plan deviation. Protected fixtures stayed unchanged and no real provider requests occurred.
+
+Whole-database duplication remains measurable: a fixed prefix's retained case grows from about 5.054 to 70.613 MiB with 100 unrelated histories; ten static captures/workspaces total 43.382 MiB, of which repeated whole-image bytes offer only about 7.066 MiB gross duplication opportunity. All input DB freelists were empty. Normal fresh reconstruction measured 5.364 seconds with 500 seed tracks and 10.916 with 10,000. Controlled depth 0/1/3 reconstruction measured 6.273/7.398/10.485 seconds. These developer cases fit the declared envelope; no alternative's net bytes, import cost or maintenance benefit was established. They do not establish full-event throughput or a universal memory/staging limit.
+
+Final regression: **1,549 passed in 406.80 seconds**, including **30 added cases** and all **230 saved-recovery migration cases**. JUnit identities confirm that every one of the 1,519 B cases remains. New tests cover real operation branches, isolation, semantic comparison, offline enforcement, Unicode/byte accounting, counters, ownership cleanup, resource/timeout failures, unavailable dbstat, complete seed/attempt closure, independent reconstruction/evaluation, a real post-capture writer and equal-digest ancestry construction. Existing production corruption, migration, eligibility and failure tests remain authoritative.
+
+The retained corpus reverified **35 histories / 174 exact reports / 228 protected files**. All **32 installed root/subcommand help outputs** match the B baseline. Final production package SHA-256 is `a388f40187d556311312b5fa13a29a71c3217539f01a84ec6c6d81b6cb11646a`; benchmark modules are `e51158805affebc851b6036dda71bed55e136af17e3629a1c3102848e8ef899a`; storage entry is `78d92fb296a5a74e9e0a4fc7d500fc04abf8f0b00203752ef218f083015a67d0`. Supplemental controls record their own matching hash. Syntax, Markdown links/anchors and whitespace checks passed.
+
+Evidence is retained under `data/benchmarks/release-c-20261024/`, including seven final JSON batches, `cleanup-controls.json`, `release-c-final-pytest.txt`, `release-c-final-tests.xml`, `final-corpus.txt` and `final-verification.json`. Generated databases/audio/reports remain ignored. The standard A/B corpus and earlier baselines were not regenerated.
+
+Larger-event recording geometry, histories/seeds, retained workspaces, disk/headroom, latency and memory budgets are still unspecified. Declare and remeasure those before a substantially larger trial. Reviewed identity corrections, then schedule revisions and report consolidation, can now continue under the existing evidence contracts.

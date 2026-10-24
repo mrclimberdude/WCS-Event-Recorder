@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "max_generated_bytes": 8589934592,
+  "minimum_free_bytes": 10737418240,
+  "worker_timeout_seconds": 600,
+  "max_cases": 64,
+  "capture_timeout_seconds": 10.0
+}
