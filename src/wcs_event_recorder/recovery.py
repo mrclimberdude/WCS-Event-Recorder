@@ -143,11 +143,16 @@ def analyze_recovery(database, recovery_id, *, on_created=None):
 def observation_inventory(store):
     groups = {"retry_observations": [], "original_observations": []}
     retry_windows, session_ids = 0, set()
+    missing_windows, missing_ids = 0, set()
     count = 0
     for result in store.iter_results():
         count += 1
         origin = observation_origin(store.db, store.run_id, result.result_id)
         retry = origin.get("kind") == "retry_attempt"
+        missing = origin.get('kind') == 'missing_attempt'
+        missing_windows += missing
+        if missing:
+            missing_ids.add(origin['collection_id'])
         retry_windows += retry
         if retry:
             session_ids.add(origin["recovery_id"])
@@ -158,10 +163,13 @@ def observation_inventory(store):
             except OverflowError:
                 elapsed = float("inf")
             if math.isfinite(elapsed):
-                groups["retry_observations" if retry else "original_observations"].append(elapsed)
+                groups.setdefault('missing_observations' if missing else "retry_observations" if retry else "original_observations", []).append(elapsed)
     latency = {key: {"observed": len(values), "minimum": min(values) if values else None,
                      "maximum": max(values) if values else None, "mean": mean(values) if values else None,
                      "median": median(values) if values else None} for key, values in groups.items()}
-    return {"selected_windows": count, "retry_origin_windows": retry_windows, "original_origin_windows": count - retry_windows,
+    report = {"selected_windows": count, "retry_origin_windows": retry_windows, "original_origin_windows": count - retry_windows - missing_windows,
             "recovery_session_ids": sorted(session_ids), "latency_seconds_by_origin": latency,
             "analysis_provider_requests": 0, "historical_provider_billing": "unknown"}
+    if missing_windows:
+        report.update(missing_origin_windows=missing_windows, missing_collection_ids=sorted(missing_ids))
+    return report

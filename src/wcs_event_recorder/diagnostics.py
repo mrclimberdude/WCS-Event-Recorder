@@ -272,6 +272,11 @@ def build_run_diagnostics(store):
     captured = checkpoint_facts(store)
     if captured is not None:
         report.update(schema_version=7, checkpoint_recovery=captured)
+    from .missing_recovery import missing_facts
+    continuation = missing_facts(store)
+    if continuation is not None:
+        report.update(schema_version=8, missing_window_recovery=continuation,
+            coverage_note='Selected evidence includes a bounded acquired continuation. Analysis uploads nothing; collection requests, source coverage and unknown historical receipt/billing are separate.')
     return report
 
 

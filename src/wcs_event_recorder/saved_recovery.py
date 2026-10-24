@@ -290,6 +290,10 @@ def planned_input_count(plan):
 
 def prefix_input_count(store):
     # Callers validate the run's manifest before using this finalization count.
+    from .lineage import MISSING_METHOD
+    if store.derivation is not None and store.derivation['method_version'] == MISSING_METHOD:
+        from .missing_recovery import missing_manifest
+        return missing_manifest(store)['through_window']
     row = store.db.execute("SELECT plan_json FROM analysis_recovery_manifests WHERE run_id = ?", (store.run_id,)).fetchone()
     return planned_input_count(json.loads(row[0]))
 
@@ -309,6 +313,10 @@ def inherited_manifest(store):
 
 
 def completion_facts(store):
+    from .missing_recovery import missing_facts
+    continuation = missing_facts(store)
+    if continuation is not None:
+        return continuation
     manifest = inherited_manifest(store)
     plan = manifest["plan"]
     selected = store.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (store.run_id,)).fetchone()[0]

@@ -25,6 +25,8 @@ from .recovery_store import recovery_report
 from .saved_recovery import load_saved_plan, plan_saved_recovery, recover_saved_run
 from .collection_analysis import analyze_collection_plan, plan_collection_analysis
 from .checkpoints import analyze_checkpoint, create_checkpoint, load_checkpoint, plan_checkpoint_analysis
+from .missing_plan import plan_missing_recovery
+from .missing_recovery import collect_missing, missing_report, plan_missing_analysis, analyze_missing_plan
 from .evaluation import EvaluationError, evaluate_run
 from .inputs import InputValidationError, load_json, load_recording, parse_schedule, validate_inputs, validate_schedule
 from .logging_config import configure_logging
@@ -221,9 +223,30 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--database", type=Path, required=True)
             command.add_argument("--plan", type=Path, required=True)
         command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    for name in ('plan-missing-recovery', 'collect-missing-audd', 'show-missing-recovery', 'plan-missing-analysis', 'analyze-missing-plan'):
+        command = commands.add_parser(name, help='bounded missing-suffix recognition or separate offline continuation analysis')
+        command.add_argument('--database', type=Path, required=True)
+        command.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+        if name == 'plan-missing-recovery':
+            command.add_argument('--run-id', required=True)
+            command.add_argument('--through-window', type=_positive_integer, required=True)
+            command.add_argument('--max-requests', type=_positive_integer, required=True)
+            command.add_argument('--audio', type=Path)
+            command.add_argument('--output', type=Path, required=True)
+            for phase, default in (('connect', '5'), ('read', '30'), ('write', '30'), ('pool', '5')):
+                command.add_argument(f'--{phase}-timeout', type=_positive_seconds, default=Decimal(default))
+        elif name in {'collect-missing-audd', 'analyze-missing-plan'}:
+            command.add_argument('--plan', type=Path, required=True)
+        else:
+            command.add_argument('--collection-id', required=True)
+            command.add_argument('--output', type=Path, required=name == 'plan-missing-analysis')
+            if name == 'plan-missing-analysis':
+                command.add_argument('--through-window', type=_positive_integer, required=True)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command in {'plan-missing-recovery', 'collect-missing-audd', 'show-missing-recovery', 'plan-missing-analysis', 'analyze-missing-plan'}:
+            return _missing_command(args)
         if args.command == "checkpoint-evidence":
             manifest = create_checkpoint(args.database, args.output, run_id=args.run_id, recovery_id=args.recovery_id, timeout=args.timeout)
             print(f"Checkpoint: {manifest['checkpoint_id']}; captured {manifest['kind']}: {manifest['subject_id']}; captured status: running; original writer/completion remain unconfirmed")
@@ -346,6 +369,41 @@ def _duration_frames(args, parser, name: str, sample_rate: int) -> int:
         parser.error(f"--{name}-seconds: {exc}")
 
 
+def _missing_command(args):
+    if args.command == 'plan-missing-recovery':
+        settings = AudDSettings(max_requests=args.max_requests, **{f'{phase}_timeout': float(getattr(args, f'{phase}_timeout')) for phase in ('connect', 'read', 'write', 'pool')})
+        plan = plan_missing_recovery(args.database, args.run_id, args.through_window, settings, audio_path=args.audio, output=args.output)
+        print(f"Preview: {plan['planned_requests']} missing-window requests; ceiling: {settings.max_requests}; WAV bytes: {plan['total_wav_bytes']}")
+        print(f"Plan: {args.output}; SHA-256: {plan['plan_sha256']}; no uploads or database changes")
+        if plan['prior_attempt_inventory']:
+            print('Earlier overlapping collection evidence is bound in this plan; receipt and billing remain unknown.')
+        return 0
+    if args.command == 'show-missing-recovery':
+        print(json.dumps(missing_report(args.database, args.collection_id, output=args.output), indent=2, allow_nan=False))
+        return 0
+    if args.command == 'plan-missing-analysis':
+        plan = plan_missing_analysis(args.database, args.collection_id, args.through_window, output=args.output)
+        print(f"Analysis plan: {args.output}; {plan['through_window']}/{plan['configured_windows']} selected windows; provider requests: 0")
+        return 0
+    plan = load_json(args.plan, 'missing-window plan')
+    if args.command == 'collect-missing-audd':
+        result = collect_missing(args.database, plan, os.environ.get('AUDD_API_TOKEN'),
+            on_created=lambda s: print(f'Missing collection: {s.collection_id}', flush=True))
+        print(f"Collection: {result['collection_id']}; dispatched requests: {result['requests_dispatched']}; use plan-missing-analysis for offline reconstruction")
+        return 0
+    result = analyze_missing_plan(args.database, plan, on_created=lambda s: print(f'Run: {s.run_id}; method: missing_window_recovery', flush=True))
+    status = 'completed' if plan['through_window'] == plan['configured_windows'] else 'completed_partial'
+    print(f"Run: {result['run_id']}; {status}; provider requests during analysis: 0")
+    _print_summary(result['summary'])
+    try:
+        for line in comparison_lines(compare_runs(args.database, result['parent_run_id'], result['run_id'])):
+            print(line)
+    except Exception as exc:
+        logger.error('Analysis %s completed; comparison failed: %s. Rerun compare-runs with the saved parent/child IDs.', result['run_id'], exc)
+        return 1
+    return 0
+
+
 def _validate_command(args: argparse.Namespace) -> int:
     logger.debug("Validating manifest %s against schedule %s", args.manifest, args.schedule)
     report = validate_inputs(args.manifest, args.schedule)
@@ -387,7 +445,7 @@ def _print_play(play, track, source):
 def _print_summary(summary):
     counts = summary["counts"]
     decisions = summary["resolution_counts"]
-    unit = "selected outcome(s)" if "newly_selected_retry_outcomes" in summary else "reused outcome(s)" if "reused_outcomes" in summary else "attempt(s)"
+    unit = "selected outcome(s)" if "newly_selected_retry_outcomes" in summary or 'missing_window_recovery' in summary else "reused outcome(s)" if "reused_outcomes" in summary else "attempt(s)"
     print(
         f"Stored: {sum(counts.values())} {unit}, {counts['match']} match, {counts['no_match']} no_match, {counts['error']} error; "
         f"{summary['unique_tracks']} track(s), {summary['song_plays']} play(s); "
@@ -405,6 +463,10 @@ def _print_summary(summary):
     if "saved_prefix_recovery" in summary:
         coverage = summary["saved_prefix_recovery"]["coverage"]
         print(f"Prefix processing: {coverage['materialized_windows']}/{coverage['input_saved_windows']} saved inputs; source-window coverage: {coverage['materialized_windows']}/{coverage['planned_windows']}; unobserved input: {coverage['unobserved_input_windows']}; uncopied input: {coverage['uncopied_input_windows']}; final open occurrence is censored", flush=True)
+    if 'missing_window_recovery' in summary:
+        facts = summary['missing_window_recovery']
+        coverage = facts['coverage']
+        print(f"Continuation: {coverage['materialized_windows']}/{coverage['input_saved_windows']} selected inputs; source-window coverage: {coverage['materialized_windows']}/{coverage['planned_windows']}; collection: {facts['collection_id']}; analysis provider requests: 0; historical EOF unknown", flush=True)
 
 
 def _print_context(context, source):

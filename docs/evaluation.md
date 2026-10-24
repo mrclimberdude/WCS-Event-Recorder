@@ -110,3 +110,7 @@ For the actual trial, prepare the private 3–5 minute sample with at least two 
 ## Complete saved-evidence recovery
 
 [Step 3b1](saved-recovery.md) uses evaluation schema 4 for recovered analyses and descendants, retaining selected-window fields and original/retry origins. A recovered computation can complete with full configured coverage while historical EOF remains unknown; the completion scope and final-play uncertainty state this explicitly. Rebuilt occurrences can be scored, but reused observations are not independent new acoustic trials. Source-hash requirements and independent-label scoring rules are unchanged.
+
+## Missing-suffix continuation
+
+[Step 3c](missing-recovery.md) and descendants use evaluation schema 8 with continuation/collection and optional checkpoint provenance. Source/hash-bound labels stay unchanged. Reports distinguish inherited-prefix and acquired-continuation label opportunities; actual selected observation inventory separately distinguishes original, retry and missing-window origins. Newly added observations have no fictional parent result. Partial predicted ends remain censored independently of label censoring; full-grid continuation can restore eligible full-grid metrics without claiming historical EOF or broader acoustic accuracy. Reused observations are not additional independent trials.

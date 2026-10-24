@@ -57,7 +57,8 @@ def test_genuine_old_schema_reprocesses_and_preserves_exact_history(historical_d
     assert db.path.read_bytes() == raw_before
     child_id = reprocess_run(db.path, parent.run_id)["run_id"]
     with Database(db.path, readonly=True) as current:
-        assert current.schema_version == 8 and current.execute("PRAGMA foreign_key_check").fetchall() == []
+        from wcs_event_recorder.schema import SCHEMA_VERSION
+        assert current.schema_version == SCHEMA_VERSION and current.execute("PRAGMA foreign_key_check").fetchall() == []
         old, child = RunStore(current, parent.run_id), RunStore(current, child_id)
         assert list(old.records()) == original
         assert (child.attributor is not None) == (version == 2)

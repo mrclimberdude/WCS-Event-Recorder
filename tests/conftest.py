@@ -203,3 +203,34 @@ def incomplete_collection(recovery_parent):
         session.begin_attempt(10,second["window"],second["wav_sha256"],second["wav_bytes"])
     session.stop("interrupted","interrupted")
     return session
+
+
+@pytest.fixture
+def missing_parent(prefix_saved_parent):
+    from wcs_event_recorder.saved_recovery import plan_saved_recovery, recover_saved_run
+    from wcs_event_recorder.run_store import RunStore
+    parent = prefix_saved_parent
+    result = recover_saved_run(parent.db.path, plan_saved_recovery(parent.db.path, parent.run_id, coverage='prefix'))
+    return RunStore(parent.db, result['run_id'])
+
+
+@pytest.fixture
+def missing_client():
+    import httpx
+    clients = []
+    def create(replies, observer=None):
+        calls, values = [], iter(replies)
+        def respond(request):
+            calls.append(request)
+            if observer is not None:
+                observer(request, len(calls))
+            value = next(values)
+            if isinstance(value, BaseException):
+                raise value
+            return httpx.Response(200, json=value)
+        client = httpx.Client(transport=httpx.MockTransport(respond))
+        clients.append(client)
+        return client, calls
+    yield create
+    for client in clients:
+        client.close()

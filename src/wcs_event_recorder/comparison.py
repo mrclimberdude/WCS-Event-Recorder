@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .attribution_store import attribution_document
 from .codecs import json_text
-from .lineage import CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
+from .lineage import CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, MISSING_METHOD, PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
 from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_closed_evidence, validate_parent, validate_reuse
 from .run_store import RunStore
 from .storage import Database
@@ -81,7 +81,7 @@ def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
     prefix = prefix_aware(child)
-    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}
+    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, MISSING_METHOD}
     if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
@@ -94,12 +94,19 @@ def build_comparison(parent, child):
     except ReprocessingError as exc:
         raise ComparisonError(str(exc)) from exc
     result_map = {r.result_id: reuse_link(child.db, child.run_id, r.result_id)["parent_result_id"] for r in child.iter_results()}
+    support_map = {r.result_id: result_map[r.result_id] or 'added-slot:' + reuse_link(child.db, child.run_id, r.result_id)['slot_key'] for r in child.iter_results()}
     mixed = recovery_aware(child)
     outcome_changes = []
+    added_observations = []
     parent_results = {r.result_id: r for r in parent.iter_results()} if mixed else {}
     resolution_changes, identities, recovered_decisions = [], 0, []
     for ordinal, result in enumerate(child.iter_results(), 1):
         original = parent_results.get(result_map[result.result_id]) if mixed else None
+        if result_map[result.result_id] is None:
+            added_observations.append({'window_ordinal': ordinal, 'parent_result_id': None, 'child_result_id': result.result_id,
+                'status': result.status.value, 'payload_sha256': payload_digest(result),
+                'resolution': resolution_view(child.resolution(result.result_id) if result.candidate else None)})
+            continue
         if mixed and payload_digest(original) != payload_digest(result):
             outcome_changes.append({"window_ordinal": ordinal, "parent_result_id": original.result_id, "child_result_id": result.result_id,
                 "before_status": original.status.value, "after_status": result.status.value,
@@ -127,10 +134,10 @@ def build_comparison(parent, child):
     before_plays, after_plays = parent.plays(), child.plays()
     before_by_id, after_by_id = ({p.play_id: p for p in items} for items in (before_plays, after_plays))
     occurrences = []
-    for old, new in occurrence_components(before_plays, after_plays, result_map):
+    for old, new in occurrence_components(before_plays, after_plays, support_map):
         item = {"parent_play_ids": [p.play_id for p in old], "child_play_ids": [p.play_id for p in new]}
         if len(old) == len(new) == 1:
-            changes = differences(play_view(parent, old[0], {}, before_by_id), play_view(child, new[0], result_map, after_by_id))
+            changes = differences(play_view(parent, old[0], {}, before_by_id), play_view(child, new[0], support_map, after_by_id))
             item.update(kind="changed" if changes else "unchanged", changes=changes,
                         start_delta_frames=new[0].window.start_frame - old[0].window.start_frame,
                         end_delta_frames=new[0].window.end_frame - old[0].window.end_frame)
@@ -138,7 +145,7 @@ def build_comparison(parent, child):
             kind = "added" if not old else "removed" if not new else "split" if len(old) == 1 else "join" if len(new) == 1 else "regrouped"
             item.update(kind=kind,
                         before=[play_view(parent, p, {}, before_by_id) for p in old],
-                        after=[play_view(child, p, result_map, after_by_id) for p in new])
+                        after=[play_view(child, p, support_map, after_by_id) for p in new])
         occurrences.append(item)
     summary = Counter({kind: 0 for kind in ("unchanged", "changed", "added", "removed", "split", "join", "regrouped")})
     summary.update(item["kind"] for item in occurrences)
@@ -198,6 +205,17 @@ def build_comparison(parent, child):
     captured = checkpoint_facts(child)
     if captured is not None:
         report.update(schema_version=6, checkpoint_recovery=captured)
+    from .missing_recovery import missing_facts
+    continuation = missing_facts(child)
+    if continuation is not None:
+        baseline_count = len(parent.results())
+        report.update(schema_version=7, method='missing_window_comparison_v1', missing_window_recovery=continuation,
+            added_observations=added_observations, baseline_selected_windows=baseline_count,
+            candidate_selected_windows=len(child.results()), shared_selected_windows=len(child.results()) - len(added_observations),
+            baseline_derivation_complete=True, full_source_coverage=continuation['full_source_coverage'],
+            occurrence_interpretation='New suffix observations can extend or add occurrences. A censored parent ending is not an inaccurate observed ending; historical EOF remains unknown.')
+        if added_observations or prefix:
+            report.update(semantic_equivalent=None, equivalence_scope='Inputs cover different or partial source windows; compare shared conclusions and added evidence separately.')
     return report
 
 
@@ -222,6 +240,8 @@ def comparison_lines(report):
     yield f"Occurrences: {report['occurrence_summary']}; new provider requests during analysis: 0" if report["schema_version"] >= 2 else f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
     if report["schema_version"] >= 2:
         yield f"Changed window outcomes: {len(report['outcome_changes'])}; newly selected retry outcomes: {report['newly_selected_retry_outcomes']}; observation provenance identifies collection separately."
+    if 'added_observations' in report:
+        yield f"Added observations: {len(report['added_observations'])}; source windows: {report['baseline_selected_windows']} -> {report['candidate_selected_windows']}"
     if "baseline_derivation_complete" in report:
         yield f"Baseline derivation complete: {report['baseline_derivation_complete']}; recovered decisions: {len(report['recovered_resolution_decisions'])}; historical EOF unknown."
     if "saved_prefix_recovery" in report:

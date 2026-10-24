@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -251,6 +251,55 @@ CHECKPOINT_STATEMENTS = (
 )
 STATEMENTS = tuple(sql.replace("'incomplete_collection_recovery_v1'))", "'incomplete_collection_recovery_v1','checkpoint_collection_recovery_v1','checkpoint_complete_recovery_v1','checkpoint_prefix_recovery_v1'))") for sql in V7_STATEMENTS) + CHECKPOINT_STATEMENTS
 TABLES = V7_TABLES | {"checkpoint_workspaces"}
+V8_TABLES, V8_STATEMENTS = TABLES, STATEMENTS
+
+MISSING_STATEMENTS = (
+    """CREATE TABLE missing_collections (
+        collection_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        created_at TEXT NOT NULL, ended_at TEXT,
+        status TEXT NOT NULL CHECK(status IN ('running','completed','failed','interrupted')),
+        stop_reason TEXT CHECK(stop_reason IN ('fatal_provider','execution_failure','interrupted')),
+        plan_json TEXT NOT NULL, catalog_snapshot_id TEXT NOT NULL REFERENCES analysis_catalog_snapshots,
+        verified_audio_json TEXT NOT NULL,
+        FOREIGN KEY(parent_run_id, source_id) REFERENCES analysis_runs(run_id, source_id),
+        UNIQUE(collection_id, parent_run_id), UNIQUE(collection_id, source_id),
+        CHECK((status = 'running') = (ended_at IS NULL)))""",
+    """CREATE TABLE missing_slots (
+        collection_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL CHECK(window_ordinal > 0),
+        slot_key TEXT NOT NULL, source_id TEXT NOT NULL, start_frame INTEGER NOT NULL CHECK(start_frame >= 0),
+        frame_count INTEGER NOT NULL CHECK(frame_count > 0), parent_run_id TEXT NOT NULL, parent_result_id TEXT,
+        FOREIGN KEY(collection_id, source_id) REFERENCES missing_collections(collection_id, source_id),
+        FOREIGN KEY(collection_id, parent_run_id) REFERENCES missing_collections(collection_id, parent_run_id),
+        FOREIGN KEY(parent_run_id, parent_result_id) REFERENCES recognition_results(run_id, result_id),
+        PRIMARY KEY(collection_id, window_ordinal), UNIQUE(collection_id, slot_key))""",
+    """CREATE INDEX missing_slot_lookup ON missing_slots(source_id, start_frame, frame_count)""",
+    """CREATE TABLE missing_attempts (
+        attempt_id TEXT PRIMARY KEY, collection_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL,
+        dispatch_intent_at TEXT NOT NULL, wav_sha256 TEXT NOT NULL, wav_bytes INTEGER NOT NULL CHECK(wav_bytes > 0),
+        outcome_json TEXT, outcome_sha256 TEXT, outcome_saved_at TEXT,
+        FOREIGN KEY(collection_id, window_ordinal) REFERENCES missing_slots,
+        UNIQUE(collection_id, window_ordinal), UNIQUE(attempt_id, collection_id, window_ordinal),
+        CHECK((outcome_json IS NULL) = (outcome_sha256 IS NULL)),
+        CHECK((outcome_json IS NULL) = (outcome_saved_at IS NULL)))""",
+    """CREATE TABLE missing_analysis_manifests (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, collection_id TEXT NOT NULL, plan_json TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(collection_id, parent_run_id) REFERENCES missing_collections(collection_id, parent_run_id),
+        UNIQUE(run_id, collection_id))""",
+    """CREATE TABLE missing_result_selections (
+        run_id TEXT NOT NULL, result_id TEXT NOT NULL, parent_run_id TEXT NOT NULL, parent_result_id TEXT,
+        collection_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL CHECK(window_ordinal > 0), slot_key TEXT NOT NULL,
+        attempt_id TEXT, payload_sha256 TEXT NOT NULL,
+        FOREIGN KEY(run_id, result_id) REFERENCES recognition_results(run_id, result_id),
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, collection_id) REFERENCES missing_analysis_manifests(run_id, collection_id),
+        FOREIGN KEY(parent_run_id, parent_result_id) REFERENCES recognition_results(run_id, result_id),
+        FOREIGN KEY(attempt_id, collection_id, window_ordinal) REFERENCES missing_attempts(attempt_id, collection_id, window_ordinal),
+        PRIMARY KEY(run_id, result_id), UNIQUE(run_id, window_ordinal),
+        CHECK((parent_result_id IS NULL) != (attempt_id IS NULL)))""",
+)
+STATEMENTS = tuple(sql.replace("'checkpoint_prefix_recovery_v1'))", "'checkpoint_prefix_recovery_v1','missing_window_recovery_v1'))") for sql in V8_STATEMENTS) + MISSING_STATEMENTS
+TABLES = V8_TABLES | {"missing_collections", "missing_slots", "missing_attempts", "missing_analysis_manifests", "missing_result_selections"}
 
 
 
@@ -357,9 +406,20 @@ def migrate_to_v7(db):
 
 def migrate_to_v8(db):
     names = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections", "analysis_recovery_manifests", "analysis_collection_manifests")
-    statements = tuple(sql for sql in STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
+    statements = tuple(sql for sql in V8_STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
     _rebuild_graph(db, names, statements, suffix="_v8")
     for sql in CHECKPOINT_STATEMENTS:db.execute(sql)
     if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ValueError("foreign-key integrity failed during checkpoint migration")
     db.execute("PRAGMA user_version = 8")
+
+
+def migrate_to_v9(db):
+    names = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections", "analysis_recovery_manifests", "analysis_collection_manifests")
+    statements = tuple(sql for sql in STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
+    _rebuild_graph(db, names, statements, suffix="_v9")
+    for sql in MISSING_STATEMENTS:
+        db.execute(sql)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during missing-window migration")
+    db.execute("PRAGMA user_version = 9")

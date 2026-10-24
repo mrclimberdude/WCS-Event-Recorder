@@ -150,4 +150,5 @@ def test_genuine_legacy_checkpoint_migrates_only_the_working_copy(legacy_databas
     assert parent.db.path.read_bytes()==before and parent.db.schema_version==1
     with Database(checkpoint/"checkpoint.sqlite3",readonly=True) as db:assert db.schema_version==1
     with Database(target,readonly=True) as db:
-        assert db.schema_version==8 and RunStore(db,result["run_id"]).row()["status"]=="completed_partial"
+        from wcs_event_recorder.schema import SCHEMA_VERSION
+        assert db.schema_version==SCHEMA_VERSION and RunStore(db,result["run_id"]).row()["status"]=="completed_partial"

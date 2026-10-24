@@ -44,8 +44,9 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                         on_play(play, resolver.catalog.get(play.track_id))
             termination = store.run.configuration.get("aggregation_termination_policy")
             if prefix_aware(store):
-                from .saved_recovery import prefix_input_count, validate_saved_analysis
-                validate_saved_analysis(store, complete=True)
+                from .saved_recovery import prefix_input_count
+                from .reprocessing import validate_reuse
+                validate_reuse(store, complete=True)
                 finished = aggregator.finish(termination_policy=termination, expected_results=prefix_input_count(store))
             else:
                 finished = aggregator.finish(termination_policy=termination) if termination else aggregator.finish()

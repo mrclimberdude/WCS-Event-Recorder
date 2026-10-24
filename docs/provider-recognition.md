@@ -90,3 +90,7 @@ The subsequent real baseline saved all 29 planned outcomes: 22 matches, 4 no-mat
 ## Selected-error recovery
 
 Phase 2 step 3a adds [selected-error recovery](recovery.md). `plan-recovery` verifies and previews explicit saved error windows offline; `recover-audd` is the separate upload command. Recovery commits mandatory dispatch intent before HTTP, retains every normalized attempt, and analyzes completed collections separately. `show-recovery` and `analyze-recovery` require no token or uploads. No live recovery was executed during implementation.
+
+## Missing-window recognition
+
+[Step 3c](missing-recovery.md) adds plan-missing-recovery and the explicit collect-missing-audd upload command for eligible saved/checkpoint/continuation prefixes. A bound contiguous suffix and request ceiling are required; exact WAV verification/preparation precedes writable collection. Intent commits before HTTP and outcomes commit before later dispatch. Offline selection/reconstruction and inspection use no token, audio or provider connection. This method uses the same adapter/profile/redaction and does not add automatic retries or resume.

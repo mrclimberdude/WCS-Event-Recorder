@@ -15,7 +15,7 @@ For example, all 29 outcomes may have committed before a failure resolving the l
 | Missing observations, incomplete collection, explicit fatal stop or empty expected grid | Outside 3b1 |
 | `running`, even if all observations appear present | Refused: the writer/completion is unconfirmed; there is no force or resume-in-place flag |
 
-Partial saved evidence and incomplete collections remain 3b2. Recognizing missing windows remains 3c. This implementation preserves the existing eligibility of completed-only reprocessing and error-only paid recovery.
+Partial saved evidence, incomplete collections and checkpoints are implemented in 3b2; [missing-suffix recognition](missing-recovery.md) is implemented separately in 3c. This implementation preserves the existing eligibility of completed-only reprocessing and error-only paid recovery.
 
 ## Plan without changing the database
 
@@ -44,7 +44,7 @@ A derived parent inherits its frozen starting catalog. For an original run witho
   --plan data/reports/saved-recovery-plan.json
 ```
 
-Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 8. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
+Execution validates the plan read-only before writable opening, then rechecks it within the initialization transaction. Eligible old databases migrate atomically to schema 9. Child run, derivation, frozen seed and recovery manifest initialize together. The child ID is printed before processing its copied observations.
 
 Each unchanged normalized outcome commits with its immediate-parent link before resolution. Catalog additions commit with their decisions; closed plays commit with all evidence/context; terminal completion follows coverage checks. No recognition attempt or retry collection is created, and zero provider requests occur. Originals retain their status, rows, summaries, snapshots and export bytes.
 

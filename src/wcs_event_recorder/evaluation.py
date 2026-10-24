@@ -384,6 +384,17 @@ def evaluate_store(store, labels):
     captured = checkpoint_facts(store)
     if captured is not None:
         report.update(schema_version=7, checkpoint_recovery=captured)
+    from .missing_recovery import missing_facts
+    continuation = missing_facts(store)
+    if continuation is not None:
+        parent_count = continuation['coverage']['inherited_input_windows']
+        shared, added = Counter(), Counter()
+        for index, item in enumerate(report['selected_window_outcomes'], 1):
+            if item['expected_occurrence_id'] is not None:
+                (shared if index <= parent_count else added)[item['expected_occurrence_id']] += 1
+        report.update(schema_version=8, missing_window_recovery=continuation,
+            eligible_window_opportunities={'inherited_prefix': dict(shared), 'acquired_continuation': dict(added)},
+            completion_scope='Selected prefix and acquired continuation are evaluated on unchanged labels. Reused evidence is not a new acoustic trial; censored predicted ends remain excluded.')
     return report
 
 

@@ -87,3 +87,7 @@ The [step 1 design](phase-2-step-1-plan.md) records the original acceptance case
 ## Complete saved-evidence recovery
 
 [Step 3b1](saved-recovery.md) produces diagnostic schema 4 for recovered analyses and descendants. Reports separate copied/expected coverage, unsuccessful original status, unknown historical EOF and zero new requests. Failed child coverage counts only committed copied results; old error subtypes and billing remain unknown. Current full verification passed 971 tests, including 103 new cases.
+
+## Missing-window collection and continuation
+
+[Step 3c](missing-recovery.md) adds read-only show-missing-recovery inspection with planned slots, committed intents/outcomes, pending dispatches and separate collection/analysis statuses. Continuation analyses/descendants use diagnostic schema 8 and retain optional checkpoint provenance. Offline analysis records zero requests; source coverage, acquired/selected observation origins, audio-verification provenance and collection attempts remain separate facts. Unknown historical receipt/billing and missing transport subtypes stay unknown.

@@ -1,6 +1,6 @@
 # Selected-error recovery
 
-Phase 2 step 3a retries explicitly selected saved AudD errors from a **completed** run. It preserves the parent, journals new attempts, reuses unaffected outcomes, and produces a separate unreviewed offline analysis. Interrupted historical runs and windows with no saved result remain steps 3b/3c.
+Phase 2 step 3a retries explicitly selected saved AudD errors from a **completed** run. It preserves the parent, journals new attempts, reuses unaffected outcomes, and produces a separate unreviewed offline analysis. Interrupted histories use the implemented saved-evidence/checkpoint workflows; windows with no saved result use the separate [missing-suffix method](missing-recovery.md).
 
 ## Preview without uploading
 
@@ -78,7 +78,7 @@ Use the existing commands with the new child ID:
 
 Recovery-aware comparison uses schema 2 and `selected_observation_comparison_v1`, reporting changed outcomes as well as identities, plays, estimated timing and context. Diagnostic/evaluation reports use schema 3 with an observation inventory and latency by original/retry origin. Evaluation scores one selected outcome per window; it never counts old and new attempts as independent windows. Its selected-coverage fields replace the pure-reuse fields. Analysis request counts are zero because collection occurred separately; the inventory and recovery report expose those collection attempts without claiming zero requests overall or known billing.
 
-Recovery-aware JSONL exports use version 5, including collection plans/attempts and selected-observation origins. Pure offline descendants retain recovery provenance. Existing original exports remain version 2/3, earlier pure-derived exports remain version 4, and their historical diagnostic/evaluation formats remain unchanged. Writable databases now use schema 5, with atomic migration from genuine schemas 1/2/3/4; read-only opens support 1/2/3/4/5 without migration.
+Recovery-aware JSONL exports use version 5, including collection plans/attempts and selected-observation origins. Pure offline descendants retain recovery provenance. Existing original exports remain version 2/3, earlier pure-derived exports remain version 4, and their historical diagnostic/evaluation formats remain unchanged. Writable databases use schema 9, with atomic migration from genuine schemas 1-8; read-only opens support 1-9 without migration. This method retains its earlier formats; descendants of newer recovery methods preserve their additional provenance.
 
 ## Verification and remaining acceptance
 

@@ -20,7 +20,7 @@ from wcs_event_recorder.saved_recovery import plan_saved_recovery, recover_saved
 from wcs_event_recorder.storage import Database, StorageError
 
 
-@pytest.fixture(params=[1,2,3,4,5,6,7])
+@pytest.fixture(params=[1,2,3,4,5,6,7,8])
 def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
     schema_version=request.param
     schema=json.loads((Path(__file__).parent/"fixtures"/f"schema-v{schema_version}.json").read_text())
@@ -79,7 +79,7 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
         prefix_plan=plan_saved_recovery(db.path,prefix.run_id,coverage="prefix")
         with db.transaction(): recovered_prefix=create_saved_analysis(db,prefix,prefix_plan)
         persist_results((replace(r,run_id=recovered_prefix.run_id,result_id=str(uuid4())) for r in prefix.results()),recovered_prefix)
-    if schema_version==7:
+    if schema_version>=7:
         from wcs_event_recorder.collection_analysis import create_collection_analysis,plan_collection_analysis,selected_collection_result
         retry_plan=plan_recovery(db.path,root.run_id,[2],AudDSettings(max_requests=1))
         with prepare_windows(retry_plan,root.source) as prepared:
@@ -115,7 +115,8 @@ def test_genuine_old_schema_upgrade_preserves_every_historical_run(historical_sa
     assert parent.db.path.read_bytes() == original_bytes
     child=recover_saved_run(parent.db.path,plan)
     with Database(parent.db.path,readonly=True) as db:
-        assert db.schema_version == 8 and not db.execute("PRAGMA foreign_key_check").fetchall()
+        from wcs_event_recorder.schema import SCHEMA_VERSION
+        assert db.schema_version == SCHEMA_VERSION and not db.execute("PRAGMA foreign_key_check").fetchall()
         assert [tuple(r) for r in db.execute("SELECT * FROM track_mappings ORDER BY service,external_id")]==mappings
         assert db.execute("SELECT sql FROM sqlite_schema WHERE name = 'one_support_play'").fetchone()
         for run_id in ids:
@@ -206,6 +207,7 @@ def test_schema7_rollback_all_historical_versions(historical_saved_parent,monkey
 
 
 @pytest.mark.parametrize("boundary",["create","copy","drop","rename","workspace","integrity","marker"])
+@pytest.mark.parametrize("historical_saved_parent",[1,2,3,4,5,6,7],indirect=True)
 def test_schema8_rollback_all_historical_versions(historical_saved_parent,monkeypatch,boundary):
     parent=historical_saved_parent;original=parent.db.path.read_bytes();execute=Database.execute
     def fail(self,sql,parameters=()):
@@ -222,4 +224,25 @@ def test_schema8_rollback_all_historical_versions(historical_saved_parent,monkey
     with pytest.raises(StorageError,match="schema8 failure"):
         with Database(parent.db.path):pass
     monkeypatch.setattr(Database,"execute",execute)
+    assert parent.db.path.read_bytes()==original
+
+
+@pytest.mark.parametrize('boundary', ['create','copy','drop','rename','collection','index','integrity','marker'])
+def test_schema9_rollback_all_historical_versions(historical_saved_parent,monkeypatch,boundary):
+    parent=historical_saved_parent; original=parent.db.path.read_bytes(); execute=Database.execute
+    def fail(self,sql,parameters=()):
+        if ((boundary=='create' and sql.startswith('CREATE TABLE analysis_derivations_v9'))
+            or (boundary=='copy' and sql.startswith('INSERT INTO analysis_collection_manifests_v9'))
+            or (boundary=='drop' and sql=='DROP TABLE analysis_collection_manifests')
+            or (boundary=='rename' and sql=='ALTER TABLE analysis_derivations_v9 RENAME TO analysis_derivations')
+            or (boundary=='collection' and sql.startswith('CREATE TABLE missing_collections'))
+            or (boundary=='index' and sql.startswith('CREATE INDEX missing_slot_lookup'))
+            or (boundary=='integrity' and sql=='PRAGMA foreign_key_check' and self.connection.execute('PRAGMA user_version').fetchone()[0]==8)
+            or (boundary=='marker' and sql=='PRAGMA user_version = 9')):
+            raise StorageError('controlled schema9 failure')
+        return execute(self,sql,parameters)
+    monkeypatch.setattr(Database,'execute',fail)
+    with pytest.raises(StorageError,match='schema9 failure'):
+        with Database(parent.db.path):pass
+    monkeypatch.setattr(Database,'execute',execute)
     assert parent.db.path.read_bytes()==original

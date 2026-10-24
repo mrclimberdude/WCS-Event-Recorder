@@ -14,7 +14,7 @@ from .attribution_store import attribution_document, context_summary, load_attri
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
-from .lineage import CHECKPOINT_PREFIX_METHOD, COLLECTION_METHODS, PREFIX_METHOD, PREFIX_TERMINATION, RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
+from .lineage import CHECKPOINT_PREFIX_METHOD, COLLECTION_METHODS, MISSING_METHOD, PREFIX_METHOD, PREFIX_TERMINATION, RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
 from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
@@ -30,10 +30,12 @@ class RunStore:
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
-        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery", "incomplete_collection_recovery", "checkpoint_prefix_recovery", "checkpoint_complete_recovery", "checkpoint_collection_recovery"}
+        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery", "incomplete_collection_recovery", "checkpoint_prefix_recovery", "checkpoint_complete_recovery", "checkpoint_collection_recovery", "missing_window_recovery"}
                 or config.get("aggregation_termination_policy") is not None) and self.derivation is None:
             raise StorageError("offline run is missing derivation metadata")
-        if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != ("checkpoint_prefix_recovery" if self.derivation and self.derivation["method_version"] == CHECKPOINT_PREFIX_METHOD else "saved_prefix_recovery")
+        partial_kind = ("missing_window_recovery" if self.derivation and self.derivation['method_version'] == MISSING_METHOD else
+                        "checkpoint_prefix_recovery" if self.derivation and self.derivation["method_version"] == CHECKPOINT_PREFIX_METHOD else "saved_prefix_recovery")
+        if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != partial_kind
                 or config.get("aggregation_termination_policy") != PREFIX_TERMINATION or row["terminal_error"] is not None):
             raise StorageError("partial-success status requires prefix recovery provenance and no terminal error")
         if prefix_aware(self) and row["status"] == "completed":
@@ -122,6 +124,7 @@ class RunStore:
             count = self.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (self.run_id,)).fetchone()[0]
             parent = None
             selected, attempt_id = result, None
+            missing = self.derivation is not None and self.derivation['method_version'] == MISSING_METHOD
             if self.derivation is not None:
                 parent = self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? AND attempt_index = ?",
                     (self.derivation["parent_run_id"], count)).fetchone()
@@ -136,9 +139,13 @@ class RunStore:
                         else:
                             from .recovery_store import selected_result, session_for_analysis
                             selected, attempt_id = selected_result(session_for_analysis(self.db, self.run_id), count + 1, selected)
-                if parent is None or payload_digest(selected) != payload_digest(result):
+                if missing:
+                    from .missing_recovery import selected_missing_result
+                    selected, parent_result_id, attempt_id = selected_missing_result(self, count + 1)
+                if (parent is None and not missing) or payload_digest(selected) != payload_digest(result):
                     raise ValueError("reused outcome must preserve its committed parent payload")
-                parent_result_id = parent["result_id"]
+                if not missing:
+                    parent_result_id = parent["result_id"]
             elif parent_result_id is not None:
                 raise ValueError("original runs cannot reuse parent outcomes")
             if (
@@ -154,7 +161,14 @@ class RunStore:
                 utc_now(), result.provider, result.status.value, json_text(asdict(result.candidate)) if result.candidate else None,
                 json_text(dict(result.raw_evidence)), result.error, self._next_event(),
             ))
-            if parent is not None:
+            if missing:
+                from .missing_plan import slot_key
+                from .missing_recovery import missing_manifest
+                plan = missing_manifest(self)
+                self.db.execute('INSERT INTO missing_result_selections VALUES (?,?,?,?,?,?,?,?,?)',
+                    (self.run_id, result.result_id, self.derivation['parent_run_id'], parent_result_id,
+                     plan['collection_id'], count + 1, slot_key(self, count + 1), attempt_id, payload_digest(result)))
+            elif parent is not None:
                 if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
                     self.db.execute("INSERT INTO recovery_result_selections VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
                         self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id,
@@ -284,7 +298,9 @@ class RunStore:
             if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
                 new = self.db.execute("SELECT count(*) FROM recovery_result_selections WHERE run_id = ? AND attempt_id IS NOT NULL", (self.run_id,)).fetchone()[0]
                 summary.update(newly_selected_retry_outcomes=new, reused_outcomes=sum(counts.values()) - new, recovery_id=self.derivation["recovery_id"])
-        if saved_aware(self) or prefix_aware(self):
+        from .missing_recovery import missing_facts
+        continuation = missing_facts(self)
+        if (saved_aware(self) or prefix_aware(self)) and continuation is None:
             from .saved_recovery import completion_facts
             summary["saved_prefix_recovery" if prefix_aware(self) else "saved_evidence_recovery"] = completion_facts(self)
         from .collection_analysis import collection_facts
@@ -295,6 +311,11 @@ class RunStore:
         captured = checkpoint_facts(self)
         if captured is not None:
             summary["checkpoint_recovery"] = captured
+        if continuation is not None:
+            summary['missing_window_recovery'] = continuation
+            if self.derivation['method_version'] == MISSING_METHOD:
+                new = self.db.execute('SELECT count(*) FROM missing_result_selections WHERE run_id=? AND attempt_id IS NOT NULL', (self.run_id,)).fetchone()[0]
+                summary.update(newly_selected_missing_outcomes=new, reused_outcomes=sum(counts.values()) - new)
         return summary
 
     def complete(self):
@@ -304,6 +325,8 @@ class RunStore:
                 from .reprocessing import validate_reuse
                 validate_reuse(self, complete=True)
             summary = self.summary()
+            if 'missing_window_recovery' in summary:
+                summary['missing_window_recovery']['analysis_execution_complete'] = True
             if prefix_aware(self):
                 from .saved_recovery import prefix_input_count
                 expected = prefix_input_count(self)
@@ -326,7 +349,7 @@ class RunStore:
             if prefix_aware(self):
                 summary["source_frame_count"] = self.source.frame_count
                 # Summary was constructed while running; record terminal execution success.
-                summary["saved_prefix_recovery"]["analysis_execution_complete"] = True
+                summary["missing_window_recovery" if 'missing_window_recovery' in summary else "saved_prefix_recovery"]["analysis_execution_complete"] = True
                 self._terminal("completed_partial", summary)
             else:
                 last = self.config.last_end_frame(self.source.frame_count)
@@ -397,21 +420,36 @@ class RunStore:
         selection = collection_facts(self)
         from .checkpoints import checkpoint_facts
         captured = checkpoint_facts(self)
+        from .missing_recovery import missing_facts, missing_manifest, MissingStore
+        continuation = missing_facts(self)
 
         def record(kind, **fields):
-            return {"schema_version": 9 if captured else 8 if selection else 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 10 if continuation else 9 if captured else 8 if selection else 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
         if self.derivation is not None:
             yield record("analysis_derived", derivation=self.derivation,
                          catalog_seed=load_catalog_snapshot(self.db, self.derivation["catalog_snapshot_id"]))
-        if saved_aware(self) or prefix_aware(self):
+        if (saved_aware(self) or prefix_aware(self)) and not continuation:
             from .saved_recovery import completion_facts, inherited_manifest
             yield record("saved_recovery_inputs", manifest=inherited_manifest(self), completion=completion_facts(self))
         if captured:
             yield record("checkpoint_origin", **captured)
         if selection:
             yield record("collection_selection_inputs", **selection)
+        if continuation:
+            yield record('missing_window_inputs', **continuation)
+            ids = set()
+            current = self
+            while current.derivation is not None:
+                if current.derivation['method_version'] == MISSING_METHOD:
+                    plan = missing_manifest(current)
+                    ids.add(plan['collection_id'])
+                    yield record('missing_window_manifest', origin_run_id=current.run_id, plan=plan)
+                current = RunStore(self.db, current.derivation['parent_run_id'])
+            for identity in sorted(ids):
+                session = MissingStore(self.db, identity)
+                yield record('missing_window_collection', collection=dict(session.row()), slots=[dict(s) for s in session.slots()], attempts=[dict(a) for a in session.attempts()])
         if recovery_aware(self):
             from .recovery_store import RecoveryStore
             ids = {selection["collection_id"]} if selection else set()
@@ -436,7 +474,7 @@ class RunStore:
                 result = result_from_row(raw)
                 yield record("recognition_result", **result_document(result), processed_at=raw["processed_at"], start_time=self.source.time_at_frame(result.window.start_frame).isoformat(), end_time=self.source.time_at_frame(result.window.end_frame).isoformat())
                 if self.derivation is not None:
-                    yield record("recognition_evidence_reused", link=reuse_link(self.db, self.run_id, result.result_id),
+                    yield record("recognition_evidence_selected" if continuation else "recognition_evidence_reused", link=reuse_link(self.db, self.run_id, result.result_id),
                                  origin=observation_origin(self.db, self.run_id, result.result_id))
             elif event["kind"] == "resolution":
                 yield record("track_resolution", **asdict(self.resolution(event["id"])))
