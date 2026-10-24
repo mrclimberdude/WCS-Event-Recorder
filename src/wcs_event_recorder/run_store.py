@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
 from importlib.metadata import version
@@ -19,14 +20,16 @@ from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecis
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
 from .windows import WindowConfig
+from .read_evidence import decoded, indexed, memo_store, one, result as read_result, rows
 
 
 class RunStore:
     def __init__(self, db: Database, run_id: str):
         self.db, self.run_id = db, run_id
+        self._result_revision, self._result_index = None, None
         row = self.row()
-        self.run = AnalysisRun(run_id, row["source_id"], datetime.fromisoformat(row["started_at"]), json.loads(row["configuration_json"]))
-        self.source = source_from_row(db.execute("SELECT * FROM recording_sources WHERE source_id = ?", (row["source_id"],)).fetchone())
+        self.run = AnalysisRun(run_id, row["source_id"], datetime.fromisoformat(row["started_at"]), decoded(db, row["configuration_json"]))
+        self.source = source_from_row(one(db, "SELECT * FROM recording_sources WHERE source_id = ?", (row["source_id"],)))
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
@@ -55,7 +58,7 @@ class RunStore:
             )
 
     def row(self):
-        row = self.db.execute("SELECT * FROM analysis_runs WHERE run_id = ?", (self.run_id,)).fetchone()
+        row = one(self.db, "SELECT * FROM analysis_runs WHERE run_id = ?", (self.run_id,))
         if row is None:
             raise StorageError(f"unknown analysis run '{self.run_id}'")
         return row
@@ -118,10 +121,34 @@ class RunStore:
         self.db.execute("UPDATE analysis_runs SET next_event_index = next_event_index + 1 WHERE run_id = ?", (self.run_id,))
         return row["next_event_index"]
 
-    def result(self, result, *, parent_result_id=None):
+    @contextmanager
+    def _write(self):
         with self.db.transaction():
+            if self._result_revision is not None:
+                self._result_revision.check()
+            yield
+            revision, changes = self._result_revision, self.db.connection.total_changes
+        if revision is not None:
+            revision.committed(changes)
+
+    def _next_result_index(self):
+        if self._result_revision is None or self._result_revision.dirty:
+            from .write_progress import WriteRevision
+            row = self.db.execute("SELECT count(*),min(attempt_index),max(attempt_index) FROM recognition_results WHERE run_id=?", (self.run_id,)).fetchone()
+            count, first, last = row
+            invalid = self.db.execute("""SELECT 1 FROM recognition_results WHERE run_id=? AND
+                (source_id!=? OR start_frame!=attempt_index*? OR frame_count!=? OR start_frame+frame_count>?) LIMIT 1""",
+                (self.run_id,self.source.source_id,self.config.hop_frames,self.config.window_frames,self.source.frame_count)).fetchone()
+            if invalid or (count and (first != 0 or last != count - 1)):
+                raise ValueError("saved result sequence is inconsistent")
+            self._result_revision = WriteRevision(self.db)
+            self._result_index = count
+        return self._result_index
+
+    def result(self, result, *, parent_result_id=None):
+        with self._write():
             self._open()
-            count = self.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (self.run_id,)).fetchone()[0]
+            count = self._next_result_index()
             parent = None
             selected, attempt_id = result, None
             missing = self.derivation is not None and self.derivation['method_version'] == MISSING_METHOD
@@ -176,6 +203,7 @@ class RunStore:
                 else:
                     self.db.execute("INSERT INTO reused_result_links VALUES (?, ?, ?, ?, ?)", (
                         self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id, payload_digest(result)))
+        self._result_index = count + 1
 
     def resolve(self, result, resolver):
         """Catalog mutation and its historical decision either both commit or neither does."""
@@ -195,7 +223,7 @@ class RunStore:
             raise
 
     def _resolve_transaction(self, result, resolver):
-        with self.db.transaction():
+        with self._write():
             self._open()
             raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ? AND run_id = ?", (result.result_id, self.run_id)).fetchone()
             if raw is None or result.status != RecognitionStatus.MATCH:
@@ -240,7 +268,7 @@ class RunStore:
 
     def play(self, play):
         context = self.attributor.attribute(play) if self.attributor is not None else None
-        with self.db.transaction():
+        with self._write():
             self._open()
             if play.run_id != self.run_id or play.window.source_id != self.source.source_id or play.aggregation_policy != self.policy.version:
                 raise ValueError("play must belong to the run/source and policy")
@@ -278,7 +306,7 @@ class RunStore:
             if context is not None:
                 save_attribution(self.db, context, play, self.attributor, utc_now(), self._next_event())
 
-    def summary(self):
+    def counts(self):
         counts = {status.value: 0 for status in RecognitionStatus}
         for row in self.db.execute("SELECT status, count(*) FROM recognition_results WHERE run_id = ? GROUP BY status", (self.run_id,)):
             counts[row[0]] = row[1]
@@ -293,6 +321,12 @@ class RunStore:
         }
         if self.attributor is not None:
             summary["context"] = context_summary(self.db, self.run_id)
+        return summary
+
+    @memo_store
+    def summary(self):
+        summary = self.counts()
+        counts = summary["counts"]
         if self.derivation is not None:
             summary.update(reused_outcomes=sum(counts.values()), new_provider_requests=0)
             if self.derivation["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
@@ -374,11 +408,11 @@ class RunStore:
         return list(self.iter_results())
 
     def iter_results(self):
-        for row in self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? ORDER BY attempt_index", (self.run_id,)):
-            yield result_from_row(row)
+        for row in rows(self.db, "SELECT * FROM recognition_results WHERE run_id = ? ORDER BY attempt_index", (self.run_id,)):
+            yield read_result(self.db, row)
 
     def resolution(self, result_id):
-        row = self.db.execute("SELECT * FROM track_resolutions WHERE result_id = ? AND run_id = ?", (result_id, self.run_id)).fetchone()
+        row = indexed(self.db, "track_resolutions", "run_id", self.run_id, "result_id", result_id)
         if row is None:
             raise KeyError(result_id)
         conflicts = tuple(item[0] for item in self.db.execute("SELECT track_id FROM resolution_conflicts WHERE result_id = ? ORDER BY track_id", (result_id,)))
@@ -403,8 +437,8 @@ class RunStore:
         row = self.row()
         if row["schedule_snapshot_id"] is None:
             return None
-        item = dict(self.db.execute("SELECT * FROM schedule_snapshots WHERE snapshot_id = ?", (row["schedule_snapshot_id"],)).fetchone())
-        item["document"] = json.loads(item.pop("document_json"))
+        item = dict(one(self.db, "SELECT * FROM schedule_snapshots WHERE snapshot_id = ?", (row["schedule_snapshot_id"],)))
+        item["document"] = decoded(self.db, item.pop("document_json"))
         return item
 
     def attribution(self, play_id):
@@ -470,8 +504,8 @@ class RunStore:
         events = self.db.execute(event_sql + " ORDER BY event_index", (self.run_id,) * (4 if self.attributor is not None else 3))
         for event in events:
             if event["kind"] == "raw":
-                raw = self.db.execute("SELECT * FROM recognition_results WHERE result_id = ?", (event["id"],)).fetchone()
-                result = result_from_row(raw)
+                raw = indexed(self.db, "recognition_results", "run_id", self.run_id, "result_id", event["id"])
+                result = read_result(self.db, raw)
                 yield record("recognition_result", **result_document(result), processed_at=raw["processed_at"], start_time=self.source.time_at_frame(result.window.start_frame).isoformat(), end_time=self.source.time_at_frame(result.window.end_frame).isoformat())
                 if self.derivation is not None:
                     yield record("recognition_evidence_selected" if continuation else "recognition_evidence_reused", link=reuse_link(self.db, self.run_id, result.result_id),

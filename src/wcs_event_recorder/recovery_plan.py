@@ -135,7 +135,8 @@ def plan_recovery(database, run_id, ordinals, settings, *, audio_path=None, outp
         with db.transaction(write=False):
             parent = RunStore(db, run_id)
             plan = make_plan(parent, ordinals, settings, audio_path)
-            verify_audio(plan["audio_path"], parent.source, plan["source_audio_sha256"])
+            source = parent.source
+    verify_audio(plan["audio_path"], source, plan["source_audio_sha256"])
     if output is not None:
         try:
             output = Path(output)

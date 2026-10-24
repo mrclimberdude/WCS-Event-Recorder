@@ -6,6 +6,8 @@ from importlib.metadata import version
 from pathlib import Path
 from uuid import uuid4
 
+from .read_evidence import memo_store
+
 from .analysis import new_run
 from .codecs import json_text, source_document
 from .lineage import ALLOCATION, CHECKPOINT_COLLECTION_METHOD, COLLECTION_METHOD, COLLECTION_METHODS, check_acyclic, digest, load_catalog_snapshot, observation_origin, payload_digest, reuse_link
@@ -176,6 +178,7 @@ def selected_collection_result(store, ordinal, parent_result):
     return result, attempt_id
 
 
+@memo_store(parent=True)
 def validate_collection_analysis(store, *, complete):
     plan = collection_plan(store)
     parent = RunStore(store.db, store.derivation["parent_run_id"])
@@ -239,6 +242,7 @@ def collection_origin(store):
     return None
 
 
+@memo_store
 def collection_facts(store):
     origin = collection_origin(store)
     if origin is None:

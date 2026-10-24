@@ -10,7 +10,7 @@ Phase 1 is implemented, and a bounded private competition-audio trial has demons
 
 Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Step 3b2a now recovers terminal saved prefixes with an explicit partial-success state, censored final occurrences and coverage-aware reports. Step 3b2b adds explicit choices from incomplete terminal collections. Step 3b2c captures immutable running-history checkpoints and reconstructs them in isolated working databases. Step 3c now collects bounded missing suffixes and reconstructs longer partial or full-grid analyses while preserving the earlier prefix. Later work includes reviewed identity/schedule revisions with explicit partial-analysis eligibility, expanded resource checks beyond the completed synthetic checkpoint, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
 
-Steps 3b and 3c are implemented within their documented scopes. The full suite passed **1,413 tests**, including 131 new step-3c cases. Installed missing-window trials and private-copy compatibility checks passed with zero real provider requests. See the [missing-window guide](docs/missing-recovery.md) for planning, bounded collection, offline reconstruction and limits.
+Steps 3b and 3c are implemented within their documented scopes. Consolidation Release A adds reproducible benchmarks, reusable migration fixtures, shared read-snapshot evidence, guarded collection/result bookkeeping and shorter read locks during audio verification. The current full suite passes **1,463 tests**, including 44 new cache/progress/concurrency cases; all 230 saved-recovery migration cases remain covered. Installed missing-window trials and private-copy compatibility checks passed with zero real provider requests. See the [missing-window guide](docs/missing-recovery.md) for planning, bounded collection, offline reconstruction and limits.
 
 ## Setup and verification
 
@@ -25,6 +25,8 @@ Use Python 3.11 or newer. The commands below run in PowerShell from this reposit
 ```
 
 Environment activation is optional because these commands use its executables directly. Installation downloads dependencies including timezone data and HTTPX; the installed validator and automated tests run offline. Runtime dependencies are declared in `pyproject.toml`; pytest is an optional development dependency.
+
+The [offline benchmark guide](docs/benchmarks.md) explains how to build a synthetic compatibility corpus, measure query/JSON work and runtime, and verify exact historical outputs after a refactor. It uses mocked recognition with network access blocked; generated artifacts stay under `data/`.
 
 ## Try input validation
 

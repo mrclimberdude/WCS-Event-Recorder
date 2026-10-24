@@ -130,5 +130,6 @@ def plan_missing_recovery(database, run_id, end, settings, *, audio_path=None, o
         with db.transaction(write=False):
             parent = RunStore(db, run_id)
             plan = make_missing_plan(parent, end, settings, audio_path)
-            verify_audio(plan['audio_path'], parent.source, plan['source_audio_sha256'])
+            source = parent.source
+    verify_audio(plan['audio_path'], source, plan['source_audio_sha256'])
     return write_plan(plan, output)

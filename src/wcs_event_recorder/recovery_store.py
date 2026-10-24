@@ -10,29 +10,31 @@ from .codecs import json_text, result_document, result_from_document, utc_now
 from .lineage import load_catalog_snapshot, payload_digest
 from .models import AudioWindow, RecognitionResult
 from .storage import Database
+from .read_evidence import decoded, one, rows
 
 
 class RecoveryStore:
     def __init__(self, db, recovery_id):
         from .recovery_plan import RecoveryError
         self.db, self.recovery_id = db, recovery_id
+        self._progress = None
         if db.schema_version < 4:
             raise RecoveryError("database contains no recovery sessions")
         row = self.row()
-        self.plan = json.loads(row["plan_json"])
+        self.plan = decoded(db, row["plan_json"])
 
     def row(self):
         from .recovery_plan import RecoveryError
-        row = self.db.execute("SELECT * FROM recognition_recoveries WHERE recovery_id = ?", (self.recovery_id,)).fetchone()
+        row = one(self.db, "SELECT * FROM recognition_recoveries WHERE recovery_id = ?", (self.recovery_id,))
         if row is None:
             raise RecoveryError("unknown recovery session")
         return row
 
     def slots(self):
-        return list(self.db.execute("SELECT * FROM recovery_slots WHERE recovery_id = ? ORDER BY window_ordinal", (self.recovery_id,)))
+        return list(rows(self.db, "SELECT * FROM recovery_slots WHERE recovery_id = ? ORDER BY window_ordinal", (self.recovery_id,)))
 
     def attempts(self):
-        return list(self.db.execute("SELECT * FROM recognition_retry_attempts WHERE recovery_id = ? ORDER BY window_ordinal", (self.recovery_id,)))
+        return list(rows(self.db, "SELECT * FROM recognition_retry_attempts WHERE recovery_id = ? ORDER BY window_ordinal", (self.recovery_id,)))
 
     def _open(self):
         from .recovery_plan import RecoveryError
@@ -44,18 +46,19 @@ class RecoveryStore:
         from .recovery_plan import RecoveryError
         with self.db.transaction():
             self._open()
-            count = len(self.attempts())
-            previous = self.attempts()
-            if any(a["outcome_json"] is None or attempt_result(a).raw_evidence.get("stop_run") is True for a in previous):
-                raise RecoveryError("cannot dispatch past a pending or fatal attempt")
-            slots = self.slots()
-            if (count >= len(slots) or count >= self.plan["settings"]["max_requests"] or slots[count]["window_ordinal"] != ordinal
-                    or window != AudioWindow(self.row()["source_id"], slots[count]["start_frame"], slots[count]["frame_count"])
-                    or wav_bytes != self.plan["wav_bytes_per_request"] or re.fullmatch(r"[0-9a-f]{64}", wav_sha256) is None):
+            if self._progress is None:
+                from .write_progress import AttemptProgress
+                self._progress = AttemptProgress(self, missing=False)
+            self._progress.next_slot(ordinal, window, wav_bytes)
+            if re.fullmatch(r"[0-9a-f]{64}", wav_sha256 or "") is None:
                 raise RecoveryError("attempt does not match the next bounded recovery slot")
             attempt_id = str(uuid4())
             self.db.execute("INSERT INTO recognition_retry_attempts VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
                 (attempt_id, self.recovery_id, ordinal, utc_now(), wav_sha256, wav_bytes))
+            attempt = self.db.execute("""SELECT a.*,s.source_id,s.start_frame,s.frame_count FROM recognition_retry_attempts a
+                JOIN recovery_slots s USING(recovery_id,window_ordinal) WHERE a.attempt_id=?""", (attempt_id,)).fetchone()
+            changes = self.db.connection.total_changes
+        self._progress.intent_committed(attempt, changes)
         return attempt_id
 
     def save_outcome(self, attempt_id, outcome):
@@ -65,6 +68,8 @@ class RecoveryStore:
             attempt = self.db.execute("""SELECT a.*, s.source_id, s.start_frame, s.frame_count FROM recognition_retry_attempts a
                 JOIN recovery_slots s USING(recovery_id, window_ordinal) WHERE a.attempt_id = ? AND a.recovery_id = ?""",
                 (attempt_id, self.recovery_id)).fetchone()
+            if self._progress is not None:
+                self._progress.check_pending(attempt)
             if attempt is None or attempt["outcome_json"] is not None or outcome.provider != "audd":
                 raise RecoveryError("outcome requires an unchanged pending AudD attempt")
             result = RecognitionResult(attempt_id, self.recovery_id,
@@ -72,6 +77,9 @@ class RecoveryStore:
                 outcome.provider, outcome.status, outcome.raw_evidence, outcome.candidate, outcome.error)
             self.db.execute("UPDATE recognition_retry_attempts SET outcome_json = ?, outcome_sha256 = ?, outcome_saved_at = ? WHERE attempt_id = ?",
                 (json_text(result_document(result)), payload_digest(result), utc_now(), attempt_id))
+            changes = self.db.connection.total_changes
+        if self._progress is not None:
+            self._progress.outcome_committed(result, changes)
         return result
 
     def complete(self):

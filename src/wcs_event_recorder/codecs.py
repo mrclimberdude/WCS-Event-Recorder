@@ -36,14 +36,15 @@ def track_from_document(data) -> Track:
     return Track(data["track_id"], data["title"], data["artist"], tuple(ExternalTrackMapping(**item) for item in data["external_mappings"]))
 
 
-def result_from_row(row) -> RecognitionResult:
-    data = json.loads(row["candidate_json"]) if row["candidate_json"] is not None else None
+def result_from_row(row, *, decode=None) -> RecognitionResult:
+    load = json.loads if decode is None else decode
+    data = load(row["candidate_json"]) if row["candidate_json"] is not None else None
     candidate = RecognitionCandidate(
         data["title"], data["artist"], tuple(ExternalTrackMapping(**item) for item in data["external_mappings"]), data["confidence"],
     ) if data is not None else None
     return RecognitionResult(
         row["result_id"], row["run_id"], AudioWindow(row["source_id"], row["start_frame"], row["frame_count"]),
-        row["provider"], RecognitionStatus(row["status"]), json.loads(row["raw_evidence_json"]), candidate, row["error"],
+        row["provider"], RecognitionStatus(row["status"]), load(row["raw_evidence_json"]), candidate, row["error"],
     )
 
 

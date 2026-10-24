@@ -11,26 +11,28 @@ from .models import AudioWindow, RecognitionResult
 from .recovery_plan import RecoveryError
 from .run_store import RunStore
 from .saved_recovery import _aware
+from .read_evidence import decoded, one, rows
 
 
 class MissingStore:
     def __init__(self, db, collection_id):
         self.db, self.collection_id = db, collection_id
+        self._progress = None
         if db.schema_version < 9:
             raise RecoveryError('database has no missing-window collections')
-        self.plan = json.loads(self.row()['plan_json'])
+        self.plan = decoded(db, self.row()['plan_json'])
 
     def row(self):
-        row = self.db.execute('SELECT * FROM missing_collections WHERE collection_id=?', (self.collection_id,)).fetchone()
+        row = one(self.db, 'SELECT * FROM missing_collections WHERE collection_id=?', (self.collection_id,))
         if row is None:
             raise RecoveryError('unknown missing-window collection')
         return row
 
     def slots(self):
-        return list(self.db.execute('SELECT * FROM missing_slots WHERE collection_id=? ORDER BY window_ordinal', (self.collection_id,)))
+        return list(rows(self.db, 'SELECT * FROM missing_slots WHERE collection_id=? ORDER BY window_ordinal', (self.collection_id,)))
 
     def attempts(self):
-        return list(self.db.execute('SELECT * FROM missing_attempts WHERE collection_id=? ORDER BY window_ordinal', (self.collection_id,)))
+        return list(rows(self.db, 'SELECT * FROM missing_attempts WHERE collection_id=? ORDER BY window_ordinal', (self.collection_id,)))
 
     def _open(self):
         self.db.require_transaction()
@@ -40,18 +42,19 @@ class MissingStore:
     def begin_attempt(self, ordinal, window, wav_sha256, wav_bytes):
         with self.db.transaction():
             self._open()
-            attempts, slots = self.attempts(), self.slots()
-            count = len(attempts)
-            if any(a['outcome_json'] is None or missing_attempt_result(a).raw_evidence.get('stop_run') is True for a in attempts):
-                raise RecoveryError('cannot dispatch beyond a pending or fatal attempt')
-            if (count >= len(slots) or count >= self.plan['settings']['max_requests']
-                    or slots[count]['window_ordinal'] != ordinal
-                    or window != AudioWindow(self.row()['source_id'], slots[count]['start_frame'], slots[count]['frame_count'])
-                    or wav_bytes != self.plan['wav_bytes_per_request'] or re.fullmatch(r'[0-9a-f]{64}', wav_sha256 or '') is None):
+            if self._progress is None:
+                from .write_progress import AttemptProgress
+                self._progress = AttemptProgress(self, missing=True)
+            self._progress.next_slot(ordinal, window, wav_bytes)
+            if re.fullmatch(r'[0-9a-f]{64}', wav_sha256 or '') is None:
                 raise RecoveryError('attempt does not match the next bounded missing slot')
             identity = str(uuid4())
             self.db.execute('INSERT INTO missing_attempts VALUES (?,?,?,?,?,?,NULL,NULL,NULL)',
                 (identity, self.collection_id, ordinal, utc_now(), wav_sha256, wav_bytes))
+            attempt = self.db.execute('''SELECT a.*,s.source_id,s.start_frame,s.frame_count FROM missing_attempts a
+                JOIN missing_slots s USING(collection_id,window_ordinal) WHERE a.attempt_id=?''', (identity,)).fetchone()
+            changes = self.db.connection.total_changes
+        self._progress.intent_committed(attempt, changes)
         return identity
 
     def save_outcome(self, attempt_id, outcome):
@@ -60,6 +63,8 @@ class MissingStore:
             attempt = self.db.execute('''SELECT a.*,s.source_id,s.start_frame,s.frame_count FROM missing_attempts a
                 JOIN missing_slots s USING(collection_id,window_ordinal) WHERE a.attempt_id=? AND a.collection_id=?''',
                 (attempt_id, self.collection_id)).fetchone()
+            if self._progress is not None:
+                self._progress.check_pending(attempt)
             if attempt is None or attempt['outcome_json'] is not None or outcome.provider != 'audd':
                 raise RecoveryError('outcome requires an unchanged pending AudD attempt')
             result = RecognitionResult(attempt_id, self.collection_id,
@@ -67,6 +72,9 @@ class MissingStore:
                 outcome.provider, outcome.status, outcome.raw_evidence, outcome.candidate, outcome.error)
             self.db.execute('UPDATE missing_attempts SET outcome_json=?,outcome_sha256=?,outcome_saved_at=? WHERE attempt_id=?',
                 (json_text(result_document(result)), payload_digest(result), utc_now(), attempt_id))
+            changes = self.db.connection.total_changes
+        if self._progress is not None:
+            self._progress.outcome_committed(result, changes)
         return result
 
     def complete(self):

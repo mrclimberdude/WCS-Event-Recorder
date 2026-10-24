@@ -7,6 +7,7 @@ from dataclasses import asdict
 from .codecs import json_text, result_document, result_from_row, track_from_document
 from .resolution import InMemoryTrackCatalog, NORMALIZATION_VERSION
 from .storage import SQLiteTrackCatalog, StorageError
+from .read_evidence import decoded, indexed, memo_db, one
 
 METHOD = "saved_outcomes_reprocessing_v1"
 RECOVERY_METHOD = "selected_error_recovery_v1"
@@ -36,10 +37,11 @@ def payload_digest(result):
     return digest({"method": "normalized_outcome_digest_v1", "outcome": document})
 
 
+@memo_db
 def derivation(db, run_id):
     if db.schema_version < 3:
         return None
-    row = db.execute("SELECT * FROM analysis_derivations WHERE run_id = ?", (run_id,)).fetchone()
+    row = one(db, "SELECT * FROM analysis_derivations WHERE run_id = ?", (run_id,))
     if row is None:
         return None
     item = dict(row)
@@ -47,7 +49,7 @@ def derivation(db, run_id):
     if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD, PREFIX_METHOD, MISSING_METHOD, *COLLECTION_METHODS, *CHECKPOINT_METHODS}:
         raise StorageError("unsupported reprocessing method")
     if item["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
-        row = db.execute("SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,)).fetchone()
+        row = one(db, "SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,))
         if row is None:
             raise StorageError("recovery derivation is missing its collection link")
         item["recovery_id"] = row["recovery_id"]
@@ -58,6 +60,7 @@ def derivation(db, run_id):
     return item
 
 
+@memo_db
 def check_acyclic(db, run_id):
     if db.schema_version < 3:
         return
@@ -66,7 +69,7 @@ def check_acyclic(db, run_id):
         if run_id in seen:
             raise ValueError("cyclic analysis lineage")
         seen.add(run_id)
-        row = db.execute("SELECT parent_run_id FROM analysis_derivations WHERE run_id = ?", (run_id,)).fetchone()
+        row = one(db, "SELECT parent_run_id FROM analysis_derivations WHERE run_id = ?", (run_id,))
         if row is None:
             return
         run_id = row[0]
@@ -81,6 +84,7 @@ def prefix_aware(store):
         or (store.derivation["method_version"] == MISSING_METHOD and store.run.configuration.get("aggregation_termination_policy") == PREFIX_TERMINATION))
 
 
+@memo_db
 def load_catalog_snapshot(db, snapshot_id):
     row = db.execute("SELECT * FROM analysis_catalog_snapshots WHERE snapshot_id = ?", (snapshot_id,)).fetchone()
     if row is None:
@@ -106,12 +110,24 @@ def reuse_link(db, run_id, result_id):
     info = derivation(db, run_id)
     table = ("missing_result_selections" if info is not None and info["method_version"] == MISSING_METHOD else
              "recovery_result_selections" if info is not None and info["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS} else "reused_result_links")
-    row = db.execute(f"SELECT * FROM {table} WHERE run_id = ? AND result_id = ?", (run_id, result_id)).fetchone()
+    row = indexed(db, table, "run_id", run_id, "result_id", result_id)
     if row is None:
         raise StorageError("missing reused result origin link")
     return dict(row)
 
 
+@memo_db
+def _observation_settings(db, kind, identity):
+    if kind == "missing":
+        from .missing_store import MissingStore
+        session = MissingStore(db, identity)
+    else:
+        from .recovery_store import RecoveryStore
+        session = RecoveryStore(db, identity)
+    return session.plan["settings"]
+
+
+@memo_db
 def observation_origin(db, run_id, result_id):
     """Follow immediate parents, retaining the original observation time/settings."""
     seen = set()
@@ -122,26 +138,29 @@ def observation_origin(db, run_id, result_id):
         link = reuse_link(db, run_id, result_id)
         if link.get("attempt_id") is not None:
             if link.get("collection_id") is not None:
-                from .missing_store import MissingStore, missing_attempt_result
-                session = MissingStore(db, link["collection_id"])
-                attempt = db.execute("SELECT * FROM missing_attempts WHERE attempt_id=? AND collection_id=?", (link["attempt_id"], session.collection_id)).fetchone()
+                from .missing_store import missing_attempt_result
+                identity = link["collection_id"]
+                settings = _observation_settings(db, "missing", identity)
+                attempt = indexed(db, "missing_attempts", "collection_id", identity, "attempt_id", link["attempt_id"])
                 missing_attempt_result(attempt)
                 return {"run_id": None, "result_id": None, "processed_at": attempt["outcome_saved_at"],
-                        "kind": "missing_attempt", "attempt_id": attempt["attempt_id"], "collection_id": session.collection_id,
-                        "dispatch_intent_at": attempt["dispatch_intent_at"], "recognition_configuration": session.plan["settings"]}
-            from .recovery_store import RecoveryStore, attempt_result
-            attempt = db.execute("SELECT * FROM recognition_retry_attempts WHERE attempt_id = ?", (link["attempt_id"],)).fetchone()
+                        "kind": "missing_attempt", "attempt_id": attempt["attempt_id"], "collection_id": identity,
+                        "dispatch_intent_at": attempt["dispatch_intent_at"], "recognition_configuration": settings}
+            from .recovery_store import attempt_result
+            attempt = indexed(db, "recognition_retry_attempts", "recovery_id", link["recovery_id"], "attempt_id", link["attempt_id"])
             attempt_result(attempt)
-            session = RecoveryStore(db, link["recovery_id"])
+            settings = _observation_settings(db, "retry", link["recovery_id"])
             return {"run_id": None, "result_id": None, "processed_at": attempt["outcome_saved_at"],
-                    "kind": "retry_attempt", "attempt_id": attempt["attempt_id"], "recovery_id": session.recovery_id,
-                    "dispatch_intent_at": attempt["dispatch_intent_at"], "recognition_configuration": session.plan["settings"]}
+                    "kind": "retry_attempt", "attempt_id": attempt["attempt_id"], "recovery_id": link["recovery_id"],
+                    "dispatch_intent_at": attempt["dispatch_intent_at"], "recognition_configuration": settings}
         run_id, result_id = link["parent_run_id"], link["parent_result_id"]
-    row = db.execute("""SELECT r.processed_at, a.configuration_json FROM recognition_results r
-        JOIN analysis_runs a ON a.run_id = r.run_id WHERE r.run_id = ? AND r.result_id = ?""", (run_id, result_id)).fetchone()
+    row = (indexed(db, "recognition_results", "run_id", run_id, "result_id", result_id) if db.read_evidence is not None else
+        db.execute("""SELECT r.processed_at, a.configuration_json FROM recognition_results r
+            JOIN analysis_runs a ON a.run_id=r.run_id WHERE r.run_id=? AND r.result_id=?""", (run_id, result_id)).fetchone())
     if row is None:
         raise StorageError("missing original recognition observation")
-    configuration = json.loads(row["configuration_json"])
+    configuration = decoded(db, (one(db, "SELECT * FROM analysis_runs WHERE run_id = ?", (run_id,))
+        if db.read_evidence is not None else row)["configuration_json"])
     return {"run_id": run_id, "result_id": result_id, "processed_at": row["processed_at"],
             "recognition_configuration": {k: configuration[k] for k in (
                 "connect_timeout", "read_timeout", "write_timeout", "pool_timeout") if k in configuration}}

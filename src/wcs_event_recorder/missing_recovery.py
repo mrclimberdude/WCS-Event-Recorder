@@ -7,6 +7,9 @@ from dataclasses import replace
 from importlib.metadata import version
 from uuid import uuid4
 
+from .read_evidence import cached, indexed, memo_store, result as read_result
+from copy import deepcopy
+
 from .analysis import new_run
 from .audd import AudDRecognizer, create_client
 from .codecs import json_text, result_from_row, utc_now
@@ -165,22 +168,22 @@ def missing_manifest(store):
 
 
 def selected_missing_result(store, ordinal):
-    plan = missing_manifest(store)
+    plan = (cached(store.db, ("selected_missing_plan", store.run_id), lambda: deepcopy(missing_manifest(store)), clone=False)
+            if store.db.read_evidence is not None else missing_manifest(store))
     if not 1 <= ordinal <= plan['through_window']:
         raise RecoveryError('result exceeds selected continuation')
     if ordinal <= plan['parent_windows']:
-        row = store.db.execute('SELECT * FROM recognition_results WHERE run_id=? AND attempt_index=?',
-            (plan['parent_run_id'], ordinal - 1)).fetchone()
+        row = indexed(store.db, 'recognition_results', 'run_id', plan['parent_run_id'], 'attempt_index', ordinal - 1)
         if row is None:
             raise RecoveryError('missing inherited prefix result')
-        return result_from_row(row), row['result_id'], None
-    row = store.db.execute('SELECT * FROM missing_attempts WHERE collection_id=? AND window_ordinal=?',
-        (plan['collection_id'], ordinal)).fetchone()
+        return read_result(store.db, row), row['result_id'], None
+    row = indexed(store.db, 'missing_attempts', 'collection_id', plan['collection_id'], 'window_ordinal', ordinal)
     if row is None or dict(row) != plan['attempts'][ordinal - plan['parent_windows'] - 1]:
         raise RecoveryError('selected missing-window attempt changed')
     return missing_attempt_result(row), None, row['attempt_id']
 
 
+@memo_store(parent=True)
 def validate_missing_analysis(child, *, complete):
     plan = missing_manifest(child)
     session = validate_missing_analysis_plan(child.db, plan)
@@ -197,11 +200,11 @@ def validate_missing_analysis(child, *, complete):
         raise RecoveryError('continuation changed its declared input/source/catalog/configuration')
     count = 0
     for count, result in enumerate(child.iter_results(), 1):
-        index = child.db.execute('SELECT attempt_index FROM recognition_results WHERE run_id=? AND result_id=?', (child.run_id, result.result_id)).fetchone()[0]
+        index = indexed(child.db, 'recognition_results', 'run_id', child.run_id, 'result_id', result.result_id)['attempt_index']
         if index != count - 1:
             raise RecoveryError('continuation stored ordinal sequence differs')
         selected, parent_id, attempt_id = selected_missing_result(child, count)
-        row = child.db.execute('SELECT * FROM missing_result_selections WHERE run_id=? AND result_id=?', (child.run_id, result.result_id)).fetchone()
+        row = indexed(child.db, 'missing_result_selections', 'run_id', child.run_id, 'result_id', result.result_id)
         expected = (parent.run_id, parent_id, session.collection_id, count, slot_key(parent, count), attempt_id, payload_digest(selected))
         if (row is None or tuple(row[k] for k in ('parent_run_id', 'parent_result_id', 'collection_id', 'window_ordinal', 'slot_key', 'attempt_id', 'payload_sha256')) != expected
                 or payload_digest(result) != payload_digest(selected)):
@@ -238,6 +241,7 @@ def missing_origin(store):
     return None
 
 
+@memo_store
 def missing_facts(store):
     origin = missing_origin(store)
     if origin is None:

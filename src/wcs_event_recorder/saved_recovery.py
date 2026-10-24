@@ -8,6 +8,8 @@ from importlib.metadata import version
 from pathlib import Path
 from uuid import uuid4
 
+from .read_evidence import memo_store
+
 from .analysis import new_run
 from .codecs import json_text, result_from_document, source_document, track_from_document
 from .inputs import load_json, parse_schedule, validate_schedule
@@ -29,6 +31,7 @@ def _aware(value):
         raise SavedRecoveryError("saved processing timestamps must be timezone-aware")
 
 
+@memo_store
 def inspect_failed(parent, *, coverage="complete", _running=False):
     """Validate raw inputs, deliberately independent of unfinished conclusions."""
     check_acyclic(parent.db, parent.run_id)
@@ -253,6 +256,7 @@ def recover_saved_run(database, plan, *, on_created=None):
         return {"run_id": child.run_id, "parent_run_id": parent_id, "summary": summary}
 
 
+@memo_store(parent=True)
 def validate_saved_analysis(child, *, complete):
     row = child.db.execute("SELECT * FROM analysis_recovery_manifests WHERE run_id = ?", (child.run_id,)).fetchone()
     if row is None:
@@ -298,6 +302,7 @@ def prefix_input_count(store):
     return planned_input_count(json.loads(row[0]))
 
 
+@memo_store
 def inherited_manifest(store):
     check_acyclic(store.db, store.run_id)
     current = store
@@ -312,6 +317,7 @@ def inherited_manifest(store):
     raise SavedRecoveryError("termination policy has no saved recovery ancestor")
 
 
+@memo_store
 def completion_facts(store):
     from .missing_recovery import missing_facts
     continuation = missing_facts(store)

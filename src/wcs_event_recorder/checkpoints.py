@@ -10,6 +10,8 @@ import tempfile
 from time import monotonic
 from uuid import UUID, uuid4
 
+from .read_evidence import memo_store
+
 from .checkpoint_io import backup_database
 from .codecs import json_text, utc_now
 from .collection_analysis import analyze_collection_plan, make_collection_plan, write_plan
@@ -211,6 +213,7 @@ def analyze_checkpoint(checkpoint, database, plan, *, on_created=None):
         else analyze_collection_plan(database, inner, on_created=on_created))
 
 
+@memo_store
 def checkpoint_facts(store):
     check_acyclic(store.db, store.run_id)
     current = store

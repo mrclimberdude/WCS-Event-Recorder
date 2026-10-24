@@ -1,6 +1,9 @@
 import json
+from contextlib import contextmanager
+import shutil
 import sqlite3
 from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,9 +23,13 @@ from wcs_event_recorder.saved_recovery import plan_saved_recovery, recover_saved
 from wcs_event_recorder.storage import Database, StorageError
 
 
-@pytest.fixture(params=[1,2,3,4,5,6,7,8])
-def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
-    schema_version=request.param
+@contextmanager
+def build_historical_saved_parent(tmp_path,schema_version,recovery_parent,store_factory):
+    # Only this module's read-only-source migration cases use these templates.
+    # Audio mutation and checkpoint/path-sensitive tests retain isolated builders.
+    audio=tmp_path/"source.wav"
+    shutil.copyfile(recovery_parent.source.audio_path,audio)
+    source=replace(recovery_parent.source,audio_path=audio)
     schema=json.loads((Path(__file__).parent/"fixtures"/f"schema-v{schema_version}.json").read_text())
     connection=sqlite3.connect(tmp_path/"historical.sqlite3",isolation_level=None)
     connection.row_factory=sqlite3.Row
@@ -35,7 +42,7 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
     db=Database(tmp_path/"historical.sqlite3")
     db.connection,db.schema_version=connection,schema_version
     configuration={k:v for k,v in recovery_parent.run.configuration.items() if schema_version>=2 or not k.startswith("attribution_")}
-    root=store_factory(db,source=recovery_parent.source,attribution=schema_version>=2,configuration_extra=configuration)
+    root=store_factory(db,source=source,attribution=schema_version>=2,configuration_extra=configuration)
     raw=recovery_parent.results()
     raw[0]=replace(raw[0],candidate=replace(raw[0].candidate,external_mappings=(ExternalTrackMapping("synthetic","migration-first-result"),)))
     persist_results((replace(r,run_id=root.run_id,result_id=str(uuid4())) for r in raw),root)
@@ -92,6 +99,36 @@ def historical_saved_parent(request,tmp_path,recovery_parent,store_factory):
         persist_results((replace(selected_collection_result(collection_child,i,r)[0],run_id=collection_child.run_id,result_id=str(uuid4())) for i,r in enumerate(root.results(),1)),collection_child)
     try: yield parent
     finally: db.close()
+
+
+@pytest.fixture(scope="module")
+def historical_saved_templates(tmp_path_factory):
+    templates={}
+    yield tmp_path_factory.mktemp("historical-saved-templates"),templates
+    for template,run_id,expected in templates.values():
+        assert {path.name:sha256(path.read_bytes()).hexdigest() for path in
+                (template,template.parent/"source.wav")} == expected
+
+
+@pytest.fixture(params=[1,2,3,4,5,6,7,8])
+def historical_saved_parent(request,tmp_path,historical_saved_templates):
+    directory,templates=historical_saved_templates
+    schema_version=request.param
+    if schema_version not in templates:
+        folder=directory/f"schema-{schema_version}"
+        folder.mkdir()
+        # Resolve expensive function-scoped inputs only when creating a template.
+        with build_historical_saved_parent(folder,schema_version,
+                request.getfixturevalue("recovery_parent"),request.getfixturevalue("store_factory")) as parent:
+            run_id=parent.run_id
+        template=folder/"historical.sqlite3"
+        expected={path.name:sha256(path.read_bytes()).hexdigest() for path in (template,folder/"source.wav")}
+        templates[schema_version]=(template,run_id,expected)
+    template,run_id,_=templates[schema_version]
+    target=tmp_path/"historical.sqlite3"
+    shutil.copyfile(template,target)  # Closed immutable template, never a live database.
+    with Database(target,readonly=True) as db:
+        yield RunStore(db,run_id)
 
 
 def test_genuine_old_schema_upgrade_preserves_every_historical_run(historical_saved_parent,tmp_path):

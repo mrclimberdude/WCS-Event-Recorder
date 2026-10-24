@@ -13,6 +13,23 @@ class StorageError(RuntimeError):
     """The local database could not be opened, read, or updated."""
 
 
+class _ReadConnection(sqlite3.Connection):
+    """Keep lifetime tracking installed when a caller adds SQL instrumentation."""
+
+    boundary = None
+    observer = None
+
+    def set_trace_callback(self, callback):
+        self.observer = callback
+        super().set_trace_callback(self._trace)
+
+    def _trace(self, sql):
+        if self.boundary is not None:
+            self.boundary(sql)
+        if self.observer is not None:
+            self.observer(sql)
+
+
 class Database:
     def __init__(self, path: Path, *, readonly: bool = False, timeout: float = 5):
         self.path = Path(path).resolve()
@@ -20,6 +37,7 @@ class Database:
         self.timeout = timeout
         self.connection: sqlite3.Connection | None = None
         self.schema_version: int | None = None
+        self.read_evidence = None
 
     def __enter__(self):
         if self.connection is not None:
@@ -30,8 +48,12 @@ class Database:
             self.connection = sqlite3.connect(
                 self.path.as_uri() + ("?mode=ro" if self.readonly else "?mode=rwc"),
                 uri=True, timeout=self.timeout, isolation_level=None,
+                factory=_ReadConnection if self.readonly else sqlite3.Connection,
             )
             self.connection.row_factory = sqlite3.Row
+            if self.readonly:
+                self.connection.boundary = self._read_boundary
+                self.connection.set_trace_callback(None)
             self.execute("PRAGMA foreign_keys = ON")
             if self.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
                 raise StorageError("SQLite foreign-key enforcement is unavailable")
@@ -105,6 +127,9 @@ class Database:
         if self.connection is None or self.connection.in_transaction:
             raise StorageError("transaction requires an open connection without an active transaction")
         self.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+        if self.readonly and not write:
+            from .read_evidence import ReadEvidence
+            self.read_evidence = ReadEvidence(self)
         try:
             yield
             self.execute("COMMIT")
@@ -115,12 +140,34 @@ class Database:
                 except sqlite3.Error:
                     pass  # Preserve the error that made this transaction fail.
             raise
+        finally:
+            self._expire_read()
+
+    def _expire_read(self):
+        if self.read_evidence is not None:
+            self.read_evidence.close()
+            self.read_evidence = None
+
+    def _read_boundary(self, sql):
+        # SQLite invokes this for direct connection/cursor commits and scripts too.
+        while True:
+            sql = sql.lstrip()
+            if sql.startswith("--"):
+                sql = sql.partition("\n")[2]
+            elif sql.startswith("/*"):
+                sql = sql.partition("*/")[2]
+            else:
+                break
+        tokens = sql.lstrip().split(None, 1)
+        if tokens and tokens[0].upper() in {"BEGIN", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE"}:
+            self._expire_read()
 
     def require_transaction(self) -> None:
         if self.connection is None or not self.connection.in_transaction or self.readonly:
             raise StorageError("writes require an explicit writable transaction")
 
     def close(self) -> None:
+        self._expire_read()
         if self.connection is not None:
             try:
                 self.connection.close()

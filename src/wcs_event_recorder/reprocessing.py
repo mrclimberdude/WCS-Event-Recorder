@@ -19,6 +19,7 @@ from .resolution import NORMALIZATION_VERSION
 from .run_store import RunStore
 from .storage import Database, StorageError
 from .windows import seconds_to_frames
+from .read_evidence import memo_store
 
 
 class ReprocessingError(ValueError):
@@ -32,6 +33,7 @@ INHERITED_SETTINGS = (
 )
 
 
+@memo_store
 def evidence_digest(store):
     content = hashlib.sha256()
     content.update(json_text({"method": "ordered_saved_evidence_v1", "source": source_document(store.source),
@@ -41,6 +43,7 @@ def evidence_digest(store):
     return content.hexdigest()
 
 
+@memo_store(parent=True)
 def validate_reuse(store, *, complete):
     """Validate lineage without changing any evidence, including on completion."""
     info = store.derivation
@@ -105,9 +108,10 @@ def validate_reuse(store, *, complete):
     return parent
 
 
+@memo_store
 def validate_closed_evidence(store):
     """Recheck completion coverage against stored evidence without catalog lookups."""
-    summary = store.summary()
+    summary = store.counts()
     if sum(summary["resolution_counts"].values()) != summary["counts"]["match"]:
         raise ReprocessingError("completed parent has inconsistent resolution coverage")
     previous, supported = {}, set()
@@ -137,6 +141,7 @@ def validate_closed_evidence(store):
         raise ReprocessingError("completed parent has inconsistent context coverage")
 
 
+@memo_store
 def validate_parent(store):
     try:
         check_acyclic(store.db, store.run_id)
