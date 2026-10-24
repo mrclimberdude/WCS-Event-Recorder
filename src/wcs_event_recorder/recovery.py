@@ -2,7 +2,6 @@
 
 import logging
 import math
-from contextlib import nullcontext
 from dataclasses import replace
 from importlib.metadata import version
 from statistics import mean, median
@@ -11,15 +10,14 @@ from uuid import uuid4
 from .analysis import new_run
 from .audd import AudDRecognizer, create_client
 from .codecs import json_text, utc_now
-from .diagnostics import failure_message
+from .collection_dispatch import CollectionMessages, dispatch_collection, notify_created
 from .lineage import ALLOCATION, RECOVERY_METHOD, digest, observation_origin
-from .models import RecognitionOutcome, RecognitionStatus
+from .models import RecognitionStatus
 from .persistence import persist_results
-from .recognition import RecognitionServiceError, RecognitionStopped
 from .recovery_plan import RecoveryError, plan_settings, prepare_windows, seed_for_parent, validate_plan
 from .recovery_store import RecoveryStore, selected_result, validate_session
 from .run_store import RunStore
-from .storage import Database, StorageError
+from .storage import Database
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +41,6 @@ def create_session(db, parent, plan):
     return RecoveryStore(db, recovery_id)
 
 
-def notify_created(callback, value):
-    if callback is not None:
-        try:
-            callback(value)
-        except OSError:
-            pass  # Optional display must not masquerade as evidence storage.
-
-
 def collect_recovery(database, plan, token, *, client=None, on_created=None):
     if not isinstance(plan, dict) or not isinstance(plan.get("parent_run_id"), str):
         raise RecoveryError("malformed recovery plan parent identity")
@@ -67,43 +57,13 @@ def collect_recovery(database, plan, token, *, client=None, on_created=None):
         with Database(database) as db:
             with db.transaction():
                 session = create_session(db, RunStore(db, plan["parent_run_id"]), plan)
-            fatal = False
-            try:
-                notify_created(on_created, session)
-                with (nullcontext(client) if client is not None else create_client(settings)) as http:
-                    pending = {}
-                    def before_request(window, wav_digest, size):
-                        item = prepared.items[pending["ordinal"]]
-                        if (window != item["window"] or wav_digest != item["wav_sha256"] or size != item["wav_bytes"]):
-                            raise RecoveryError("dispatch WAV differs from verified prepared audio")
-                        pending["attempt_id"] = session.begin_attempt(pending["ordinal"], window, wav_digest, size)
-                    recognizer = AudDRecognizer(http, token, settings, before_request=before_request)
-                    for slot in plan["selected_windows"]:
-                        pending.clear()
-                        pending["ordinal"] = slot["ordinal"]
-                        try:
-                            outcome = recognizer.recognize(prepared.audio(slot["ordinal"]))
-                        except RecognitionServiceError as exc:
-                            fatal = exc.stop_run
-                            outcome = RecognitionOutcome("audd", RecognitionStatus.ERROR, exc.raw_evidence, error=str(exc))
-                        result = session.save_outcome(pending["attempt_id"], outcome)
-                        if result.error:
-                            try:
-                                logger.log(logging.ERROR if fatal else logging.WARNING, "Recovery %s; window %s; saved attempt %s: %s",
-                                    session.recovery_id, slot["ordinal"], result.result_id, failure_message(result.provider, result.raw_evidence))
-                            except OSError:
-                                pass
-                        if fatal:
-                            raise RecognitionStopped("fatal recovery outcome saved; no later request or completed analysis was produced")
-                session.complete()
-            except BaseException as exc:
-                try:
-                    session.stop("interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
-                                 "interrupted" if isinstance(exc, KeyboardInterrupt) else "fatal_provider" if fatal else "execution_failure")
-                except (StorageError, ValueError):
-                    logger.error("Could not save terminal state for recovery %s; completion is unconfirmed", session.recovery_id)
-                raise
-            return {"recovery_id": session.recovery_id, "requests_dispatched": recognizer.requests_sent}
+            dispatched = dispatch_collection(session, session.recovery_id, prepared, plan, token, settings,
+                messages=CollectionMessages("Recovery", "dispatch WAV differs from verified prepared audio",
+                    "fatal recovery outcome saved; no later request or completed analysis was produced",
+                    "Could not save terminal state for recovery %s; completion is unconfirmed"),
+                logger=logger, client=client, client_factory=create_client, recognizer_factory=AudDRecognizer, on_created=on_created)
+            return {"recovery_id": session.recovery_id, "requests_dispatched": dispatched}
+
 
 
 def create_recovery_analysis(db, session):

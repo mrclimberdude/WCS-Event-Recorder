@@ -92,5 +92,5 @@ def test_show_run_offers_safely_quoted_offline_hint(diagnosed_run, capsys):
 def test_interrupted_diagnostic_command_keeps_interruption_exit_code(diagnosed_run, monkeypatch):
     def interrupt(*_):
         raise KeyboardInterrupt()
-    monkeypatch.setattr(cli, "diagnose_run", interrupt)
+    monkeypatch.setattr(cli.cli_inspection, "diagnose_run", interrupt)
     assert cli.main(arguments(diagnosed_run)) == 130

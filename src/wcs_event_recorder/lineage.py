@@ -9,21 +9,9 @@ from .resolution import InMemoryTrackCatalog, NORMALIZATION_VERSION
 from .storage import SQLiteTrackCatalog, StorageError
 from .read_evidence import decoded, indexed, memo_db, one
 
-METHOD = "saved_outcomes_reprocessing_v1"
-RECOVERY_METHOD = "selected_error_recovery_v1"
-SAVED_METHOD = "saved_evidence_recovery_v1"
-SAVED_TERMINATION = "saved_complete_grid_v1"
-COLLECTION_METHOD = "incomplete_collection_recovery_v1"
-CHECKPOINT_COLLECTION_METHOD = "checkpoint_collection_recovery_v1"
-CHECKPOINT_COMPLETE_METHOD = "checkpoint_complete_recovery_v1"
-CHECKPOINT_PREFIX_METHOD = "checkpoint_prefix_recovery_v1"
-CHECKPOINT_METHODS = {CHECKPOINT_COLLECTION_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}
-COLLECTION_METHODS = {COLLECTION_METHOD, CHECKPOINT_COLLECTION_METHOD}
-PREFIX_METHOD = "saved_prefix_recovery_v1"
-PREFIX_TERMINATION = "saved_prefix_grid_v1"
-MISSING_METHOD = "missing_window_recovery_v1"
-ALLOCATION = "seed_origin_uuid_v1"
-STAGE = "offline_reprocessed"
+from .methods import (METHOD, RECOVERY_METHOD, SAVED_METHOD, SAVED_TERMINATION, COLLECTION_METHOD,
+    CHECKPOINT_COLLECTION_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, CHECKPOINT_METHODS,
+    COLLECTION_METHODS, PREFIX_METHOD, PREFIX_TERMINATION, MISSING_METHOD, ALLOCATION, STAGE, is_prefix, method_spec)
 
 
 def digest(value):
@@ -46,17 +34,15 @@ def derivation(db, run_id):
         return None
     item = dict(row)
     item["configuration_changes"] = json.loads(item.pop("configuration_changes_json"))
-    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD, PREFIX_METHOD, MISSING_METHOD, *COLLECTION_METHODS, *CHECKPOINT_METHODS}:
-        raise StorageError("unsupported reprocessing method")
-    if item["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS}:
+    spec = method_spec(item["method_version"])
+    if spec.collection_link:
         row = one(db, "SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,))
         if row is None:
             raise StorageError("recovery derivation is missing its collection link")
         item["recovery_id"] = row["recovery_id"]
-    if item["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD} and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
-        raise StorageError("saved-evidence recovery is missing its manifest")
-    if item["method_version"] == MISSING_METHOD and db.execute("SELECT 1 FROM missing_analysis_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
-        raise StorageError("missing-window analysis is missing its manifest")
+    if spec.manifest and db.execute(f"SELECT 1 FROM {spec.manifest} WHERE run_id = ?", (run_id,)).fetchone() is None:
+        raise StorageError("missing-window analysis is missing its manifest" if spec.name == MISSING_METHOD
+            else "saved-evidence recovery is missing its manifest")
     return item
 
 
@@ -80,8 +66,7 @@ def saved_aware(store):
 
 
 def prefix_aware(store):
-    return store.derivation is not None and (store.derivation["method_version"] in {PREFIX_METHOD, CHECKPOINT_PREFIX_METHOD}
-        or (store.derivation["method_version"] == MISSING_METHOD and store.run.configuration.get("aggregation_termination_policy") == PREFIX_TERMINATION))
+    return is_prefix(store)
 
 
 @memo_db
@@ -108,8 +93,7 @@ def capture_catalog(db):
 
 def reuse_link(db, run_id, result_id):
     info = derivation(db, run_id)
-    table = ("missing_result_selections" if info is not None and info["method_version"] == MISSING_METHOD else
-             "recovery_result_selections" if info is not None and info["method_version"] in {RECOVERY_METHOD, *COLLECTION_METHODS} else "reused_result_links")
+    table = method_spec(info["method_version"]).links if info is not None else "reused_result_links"
     row = indexed(db, table, "run_id", run_id, "result_id", result_id)
     if row is None:
         raise StorageError("missing reused result origin link")
@@ -194,6 +178,7 @@ class FrozenTrackCatalog(SQLiteTrackCatalog):
         self.run_id = run_id
         self.snapshot_id = snapshot["snapshot_id"]
         self.view = InMemoryTrackCatalog(track_from_document(item) for item in snapshot["document"]["tracks"])
+        self._journal = None
 
     def __len__(self):
         return len(self.view)
@@ -213,9 +198,28 @@ class FrozenTrackCatalog(SQLiteTrackCatalog):
     def restore(self, checkpoint):
         self.view = InMemoryTrackCatalog(checkpoint)
 
+    def begin_mutations(self):
+        if self._journal is not None:
+            raise ValueError("catalog mutation journal is already active")
+        self._journal = {}
+
+    def commit_mutations(self):
+        """Release rollback entries only after the owning database commit."""
+        self._journal = None
+
+    def rollback_mutations(self):
+        if self._journal is not None:
+            for track_id, previous in reversed(tuple(self._journal.items())):
+                self.view._restore_track(track_id, previous)
+            self._journal = None
+
     def save(self, track):
         from dataclasses import replace
 
+        previous = self.view._tracks.get(track.track_id)
+        changed = previous != track
+        if changed and self._journal is not None:
+            self._journal.setdefault(track.track_id, previous)
         shared = SQLiteTrackCatalog(self.db, first_result_id=self.first_result_id)
         try:
             old = shared.get(track.track_id)
@@ -225,4 +229,5 @@ class FrozenTrackCatalog(SQLiteTrackCatalog):
             raise StorageError("shared catalog identity conflicts with frozen analysis")
         mappings = tuple(dict.fromkeys((*(old.external_mappings if old else ()), *track.external_mappings)))
         shared.save(replace(track, external_mappings=mappings))
-        self.view.save(track)
+        if changed:
+            self.view.save(track)

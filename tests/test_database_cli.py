@@ -121,8 +121,8 @@ def test_cli_failure_retains_inspectable_evidence(process_args, monkeypatch, cap
 
 def test_paced_and_accelerated_database_processing_are_equivalent(process_args, input_files, monkeypatch):
     # Replay's injected clock still exercises pacing, without real waiting.
-    from wcs_event_recorder import cli
-    real_replay = cli.replay
+    from wcs_event_recorder import cli, cli_processing
+    real_replay = cli_processing.replay
     clock = [0.0]
     sleeps = []
 
@@ -133,7 +133,7 @@ def test_paced_and_accelerated_database_processing_are_equivalent(process_args, 
     def fake_replay(source, **kwargs):
         return real_replay(source, **kwargs, monotonic=lambda: clock[0], sleep=sleep)
 
-    monkeypatch.setattr(cli, "replay", fake_replay)
+    monkeypatch.setattr(cli_processing, "replay", fake_replay)
     process_args = [*process_args, "--schedule", str(input_files[1])]
     assert main(process_args) == 0
     assert sleeps == []

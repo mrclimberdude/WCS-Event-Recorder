@@ -64,6 +64,27 @@ class InMemoryTrackCatalog:
         for mapping in track.external_mappings:
             self._external.setdefault((mapping.service, mapping.external_id), set()).add(track.track_id)
 
+    def _restore_track(self, track_id: str, previous: Track | None) -> None:
+        """Undo a journaled mutation without rebuilding unrelated lookup indexes."""
+        current = self._tracks.get(track_id)
+        if previous is None:
+            self._tracks.pop(track_id, None)
+        if current is not None:
+            memberships = [(self._metadata, metadata_key(current.title, current.artist))]
+            memberships.extend((self._external, (mapping.service, mapping.external_id))
+                               for mapping in current.external_mappings)
+            for index, key in memberships:
+                members = index.get(key)
+                if members is not None:
+                    members.discard(track_id)
+                    if not members:
+                        del index[key]
+        if previous is not None:
+            self._tracks[track_id] = previous
+            self._metadata.setdefault(metadata_key(previous.title, previous.artist), set()).add(track_id)
+            for mapping in previous.external_mappings:
+                self._external.setdefault((mapping.service, mapping.external_id), set()).add(track_id)
+
 
 class TrackResolver:
     def __init__(self, catalog: TrackCatalog, policy: ResolutionPolicy = ResolutionPolicy(), *, new_track_id=None):

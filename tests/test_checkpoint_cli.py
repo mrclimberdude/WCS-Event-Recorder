@@ -45,7 +45,7 @@ def test_checkpoint_cli_failures_keep_honest_state(prefix_saved_parent,tmp_path,
     assert main(["plan-checkpoint-analysis","--checkpoint",str(checkpoint),"--output",str(plan)])==0
     if boundary=="comparison":
         def fail(*a,**kw):raise ComparisonError("controlled report failure")
-        monkeypatch.setattr("wcs_event_recorder.cli.compare_runs",fail)
+        monkeypatch.setattr("wcs_event_recorder.cli_recovery.compare_runs",fail)
     else:
         def fail(*a,**kw):
             if boundary=="interrupt":raise KeyboardInterrupt()

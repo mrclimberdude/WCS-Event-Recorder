@@ -52,7 +52,7 @@ def test_installed_subprocess_can_reprocess_without_credentials(parent, monkeypa
 def test_comparison_failure_does_not_reclassify_completed_child(parent, monkeypatch, capsys):
     def fail(*args, **kwargs):
         raise ComparisonError("report failure")
-    monkeypatch.setattr("wcs_event_recorder.cli.compare_runs", fail)
+    monkeypatch.setattr("wcs_event_recorder.cli_recovery.compare_runs", fail)
     assert main(["reprocess-run", "--database", str(parent.db.path), "--run-id", parent.run_id]) == 1
     child_id = parent.db.execute("SELECT run_id FROM analysis_derivations").fetchone()[0]
     assert RunStore(parent.db, child_id).row()["status"] == "completed"
@@ -74,5 +74,5 @@ def test_usage_errors_have_exit_2(arguments):
 def test_keyboard_interrupt_returns_130(parent, monkeypatch):
     def interrupt(*args, **kwargs):
         raise KeyboardInterrupt()
-    monkeypatch.setattr("wcs_event_recorder.cli.reprocess_run", interrupt)
+    monkeypatch.setattr("wcs_event_recorder.cli_recovery.reprocess_run", interrupt)
     assert main(["reprocess-run", "--database", str(parent.db.path), "--run-id", parent.run_id]) == 130

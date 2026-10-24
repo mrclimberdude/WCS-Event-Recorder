@@ -78,3 +78,27 @@ All prior schema versions and injected migration failure boundaries remain cover
 Release A passed 1,463 tests and re-verified all 174 retained report outputs and 228 protected files. On the retained 525-observation comparison case, SQL executions dropped from 111,490 to 1,197, JSON decodes from 88,519 to 2,141, and median warm operation time from 1.6792 to 0.5628 seconds. Peak traced comparison allocations increased from about 6.76 to 8.34 MiB because evidence is retained until the read transaction ends. See the [full verification record](performance-maintainability-plan.md#release-a-verification-record) for matching workloads, all measured operations, allocation tradeoffs and test artifacts.
 
 The production read context batches relevant owners' rows and memoizes identical validation scopes within one read-only transaction. Direct SQL transaction boundaries expire it; writes use fresh validation. Collection growth tests separately confirm linear history decoding and preserve request intent/outcome durability. A conservative revision guard stops further collection after an unexpected database write, including unrelated writes; it does not affect read-only inspection or automatically resume a collection.
+
+## Release B probes and results
+
+The focused runner supplements the retained read/report corpus with evaluation kernels and real committed resolution writes:
+
+```powershell
+.\.venv\Scripts\python.exe -B scripts/benchmark_release_b.py evaluation --repeat 3 --output data/benchmarks/my-evaluation.json
+.\.venv\Scripts\python.exe -B scripts/benchmark_release_b.py catalog --repeat 3 --output data/benchmarks/my-catalog.json
+.\.venv\Scripts\python.exe -B scripts/benchmark_release_b.py catalog-preparation --repeat 3 --output data/benchmarks/my-catalog-preparation.json
+```
+
+Each output and its adjacent scratch directory must be new. The socket/DNS guard remains enabled. Evaluation varies configured grid, labels and saved observations independently; its result digest binds opportunity counts and classifications. Catalog workloads vary seed size and matched observation count independently across unchanged, ambiguous, new-track and mapping-merge cases. Each catalog timing sample uses a fresh private database; setup, parent construction and seed loading are excluded. The write operation commits each raw result and each resolution transaction. These synthetic offline inputs require no actual recording or token.
+
+Normal timings and allocation tracing run separately. Peaks are incremental traced Python allocations during the operation; retained seed/view memory and native/process memory are excluded from those traces. The runner also reports separate process-memory snapshots: current Windows working set and process lifetime peak, including setup/import effects. These are not operation-specific native peaks; the first before/after files predate those additional snapshots. `catalog-preparation` compares the retained legacy snapshot helper with journal start/finalization on preloaded views, excluding database cost. It measures the unchanged case and is not a substitute for the committed-write matrix. Before/after kernel and write results are retained under `data/benchmarks/release-b-*`; the full [Release B record](performance-maintainability-plan.md#release-b-verification-record) includes tradeoffs and mixed timings.
+
+Release B retains all 174 exact historical report outputs and 228 protected files. SQL/row/JSON work on the matching read/report workload remains identical to Release A. Evaluation avoids visiting unobserved grid windows and uses an O(I) interval index; the 10,000-window/1,000-label kernel changed from about 0.999 seconds to 0.000408 seconds while peak traced allocations increased from 64.58 to 138.58 KiB. Runtime resolution no longer makes full-catalog checkpoints; committed write timings remain mixed, with no overall throughput speedup claimed. Run larger operational trials before treating these synthetic measurements as full-event resource bounds.
+
+## Planned Release C measurements
+
+Release C has not implemented a storage probe or chosen a replacement format. The [updated plan](performance-maintainability-plan.md#release-c-measured-storage-decision) calls for new synthetic fixtures that hold selected evidence/seed digests constant while varying unrelated histories, then vary catalogs, captures/workspaces and ancestry separately. Keep the retained A/B corpus unchanged as the historical-output oracle; its 60.16 MiB includes verification reports and row snapshots and is not a production-storage or deduplication estimate.
+
+Extend the tooling to separate physical database/bundle/workspace storage, embedded/file manifests, free pages, sidecars and peak staging space, with source PCM and prepared-audio spools reported separately. Measure capture, validation, hashing calls/bytes, workspace preparation and reconstruction independently using the post-B implementation. Existing read-report, evaluation-kernel and committed-write probes remain controls; none measures the complete C workload or proves archive savings.
+
+Declare workload and disk/time/memory budgets before judging alternatives. The C1 measurements feed a C2 decision to retain the current format or specify at most one bounded alternative. A new format requires complete dependency/ownership and round-trip/failure checks; a keep-current outcome requires measured capacity and remeasurement triggers. No new command or schema is implied by this planning update.

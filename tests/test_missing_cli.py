@@ -58,7 +58,7 @@ def test_cli_failure_preserves_correct_state(missing_parent, missing_client, tmp
     if boundary == 'comparison':
         def fail(*args, **kwargs):
             raise ComparisonError('controlled comparison failure')
-        monkeypatch.setattr('wcs_event_recorder.cli.compare_runs', fail)
+        monkeypatch.setattr('wcs_event_recorder.cli_recovery.compare_runs', fail)
     else:
         def fail(*args, **kwargs):
             if boundary == 'interrupt':

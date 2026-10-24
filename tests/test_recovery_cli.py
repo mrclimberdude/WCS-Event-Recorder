@@ -111,7 +111,7 @@ def test_comparison_failure_preserves_completed_analysis(recovery_parent, tmp_pa
     path = tmp_path / "plan.json"
     assert main(plan_args(parent, path)) == 0
     mock_network(monkeypatch)
-    monkeypatch.setattr("wcs_event_recorder.cli.compare_runs", lambda *a: (_ for _ in ()).throw(ComparisonError("report unavailable")))
+    monkeypatch.setattr("wcs_event_recorder.cli_recovery.compare_runs", lambda *a: (_ for _ in ()).throw(ComparisonError("report unavailable")))
     assert main(["recover-audd", "--database", str(parent.db.path), "--plan", str(path)]) == 1
     row = parent.db.execute("SELECT a.status FROM analysis_runs a JOIN recovery_analysis_links USING(run_id)").fetchone()
     assert row[0] == "completed" and "completed; comparison failed" in capsys.readouterr().err
@@ -123,5 +123,5 @@ def test_interruption_returns_130(recovery_parent, tmp_path, monkeypatch):
     mock_network(monkeypatch)
     def interrupt(*args, **kwargs):
         raise KeyboardInterrupt()
-    monkeypatch.setattr("wcs_event_recorder.cli.collect_recovery", interrupt)
+    monkeypatch.setattr("wcs_event_recorder.cli_recovery.collect_recovery", interrupt)
     assert main(["recover-audd", "--database", str(recovery_parent.db.path), "--plan", str(path)]) == 130

@@ -9,6 +9,8 @@ from fractions import Fraction
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .methods import report_profile
+
 from .codecs import json_text
 from .models import RecognitionStatus
 from .run_store import RunStore
@@ -242,41 +244,42 @@ def build_run_diagnostics(store):
         "errors": errors,
     }
     if store.derivation is not None:
-        report.update(schema_version=2, analysis_kind="offline_reprocess", parent_run_id=store.derivation["parent_run_id"],
+        report.update(analysis_kind="offline_reprocess", parent_run_id=store.derivation["parent_run_id"],
                       source_hash_provenance=store.derivation["source_hash_provenance"], request_attempts_started=0,
                       new_provider_requests=0,
                       coverage_note="Saved outcomes and errors are reused original observations. This offline run made zero provider requests; original billing remains unknown.")
         from .lineage import recovery_aware
         if recovery_aware(store):
             from .recovery import observation_inventory
-            report.update(schema_version=3, analysis_kind=store.run.configuration["analysis_kind"],
+            report.update(analysis_kind=store.run.configuration["analysis_kind"],
                           observation_provenance=observation_inventory(store),
                           coverage_note="Selected outcomes include explicit retry origins. Analysis makes zero requests; collection attempts are recorded separately and billing remains unknown.")
         from .lineage import saved_aware
         if saved_aware(store):
             from .saved_recovery import completion_facts
-            report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
+            report.update(saved_evidence_recovery=completion_facts(store),
                           coverage_note="Saved observations are reused without uploads. Configured-window completion does not confirm historical EOF; original status and billing remain separate.")
         from .lineage import prefix_aware
         if prefix_aware(store):
             from .saved_recovery import completion_facts
-            report.update(schema_version=5, saved_prefix_recovery=completion_facts(store),
+            report.update(saved_prefix_recovery=completion_facts(store),
                           coverage_note="Only the saved prefix is selected. Unobserved source windows and uncopied recovery input are separate; historical dispatch, EOF and billing remain unknown. No uploads occur.")
             if status == "completed_partial":
                 report["status_note"] = "Offline prefix execution finished successfully; recording coverage remains partial."
     from .collection_analysis import collection_facts
     selection = collection_facts(store)
     if selection is not None:
-        report.update(schema_version=6, collection_recovery=selection)
+        report.update(collection_recovery=selection)
     from .checkpoints import checkpoint_facts
     captured = checkpoint_facts(store)
     if captured is not None:
-        report.update(schema_version=7, checkpoint_recovery=captured)
+        report.update(checkpoint_recovery=captured)
     from .missing_recovery import missing_facts
     continuation = missing_facts(store)
     if continuation is not None:
-        report.update(schema_version=8, missing_window_recovery=continuation,
+        report.update(missing_window_recovery=continuation,
             coverage_note='Selected evidence includes a bounded acquired continuation. Analysis uploads nothing; collection requests, source coverage and unknown historical receipt/billing are separate.')
+    report["schema_version"] = report_profile(store, collection=selection, checkpoint=captured, missing=continuation).diagnostic
     return report
 
 

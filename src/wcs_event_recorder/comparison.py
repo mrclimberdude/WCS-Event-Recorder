@@ -4,6 +4,9 @@ from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
+from .methods import report_profile
+from .methods import method_spec
+
 from .attribution_store import attribution_document
 from .codecs import json_text
 from .lineage import CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, MISSING_METHOD, PREFIX_METHOD, SAVED_METHOD, load_catalog_snapshot, payload_digest, prefix_aware, recovery_aware, reuse_link, saved_aware
@@ -81,7 +84,7 @@ def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
     prefix = prefix_aware(child)
-    reconstructed = child.derivation["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, MISSING_METHOD}
+    reconstructed = method_spec(child.derivation["method_version"]).reconstructed
     if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
@@ -176,14 +179,14 @@ def build_comparison(parent, child):
     }
     if mixed:
         from .recovery import observation_inventory
-        report.update(schema_version=2, method="selected_observation_comparison_v1", outcome_changes=outcome_changes,
+        report.update(method="selected_observation_comparison_v1", outcome_changes=outcome_changes,
                       observation_provenance=observation_inventory(child),
                       reused_outcomes=child.summary().get("reused_outcomes"),
                       newly_selected_retry_outcomes=child.summary().get("newly_selected_retry_outcomes", 0),
                       provider_requests_during_analysis=0)
     if saved_aware(child):
         from .saved_recovery import completion_facts
-        report.update(schema_version=3, method="saved_evidence_recovery_comparison_v1" if reconstructed else "saved_termination_comparison_v1",
+        report.update(method="saved_evidence_recovery_comparison_v1" if reconstructed else "saved_termination_comparison_v1",
                       saved_evidence_recovery=completion_facts(child), baseline_derivation_complete=not reconstructed,
                       recovered_resolution_decisions=recovered_decisions,
                       occurrence_interpretation="Conclusions reconstructed from saved observations; added output does not imply new recognition or a baseline claim that no song played.")
@@ -192,7 +195,7 @@ def build_comparison(parent, child):
                           equivalence_scope="Baseline analysis is incomplete. Compare available stored conclusions; complete musical equivalence is not assessable.")
     if prefix:
         from .saved_recovery import completion_facts
-        report.update(schema_version=4, method="saved_prefix_comparison_v1", saved_prefix_recovery=completion_facts(child),
+        report.update(method="saved_prefix_comparison_v1", saved_prefix_recovery=completion_facts(child),
                       baseline_derivation_complete=False, recovered_resolution_decisions=recovered_decisions,
                       semantic_equivalent=None, full_source_coverage=False,
                       equivalence_scope="Compare only selected prefix evidence and available conclusions; full-source equivalence is not assessable.",
@@ -200,22 +203,23 @@ def build_comparison(parent, child):
     from .collection_analysis import collection_facts
     selection = collection_facts(child)
     if selection is not None:
-        report.update(schema_version=5, collection_recovery=selection)
+        report.update(collection_recovery=selection)
     from .checkpoints import checkpoint_facts
     captured = checkpoint_facts(child)
     if captured is not None:
-        report.update(schema_version=6, checkpoint_recovery=captured)
+        report.update(checkpoint_recovery=captured)
     from .missing_recovery import missing_facts
     continuation = missing_facts(child)
     if continuation is not None:
         baseline_count = len(parent.results())
-        report.update(schema_version=7, method='missing_window_comparison_v1', missing_window_recovery=continuation,
+        report.update(method='missing_window_comparison_v1', missing_window_recovery=continuation,
             added_observations=added_observations, baseline_selected_windows=baseline_count,
             candidate_selected_windows=len(child.results()), shared_selected_windows=len(child.results()) - len(added_observations),
             baseline_derivation_complete=True, full_source_coverage=continuation['full_source_coverage'],
             occurrence_interpretation='New suffix observations can extend or add occurrences. A censored parent ending is not an inaccurate observed ending; historical EOF remains unknown.')
         if added_observations or prefix:
             report.update(semantic_equivalent=None, equivalence_scope='Inputs cover different or partial source windows; compare shared conclusions and added evidence separately.')
+    report["schema_version"] = report_profile(child, collection=selection, checkpoint=captured, missing=continuation).comparison
     return report
 
 

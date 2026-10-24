@@ -47,7 +47,7 @@ def test_prefix_cli_failure_exit_and_terminal_state(prefix_saved_parent,tmp_path
     assert main(plan_args(parent,path))==0
     if boundary=="comparison":
         def fail(*a,**kw): raise ComparisonError("controlled report failure")
-        monkeypatch.setattr("wcs_event_recorder.cli.compare_runs",fail)
+        monkeypatch.setattr("wcs_event_recorder.cli_recovery.compare_runs",fail)
     else:
         def fail(*a,**kw):
             if boundary=="interrupt": raise KeyboardInterrupt()

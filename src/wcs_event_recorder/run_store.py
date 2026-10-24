@@ -20,6 +20,7 @@ from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecis
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
 from .windows import WindowConfig
+from .methods import report_profile
 from .read_evidence import decoded, indexed, memo_store, one, result as read_result, rows
 
 
@@ -214,13 +215,17 @@ class RunStore:
             resolver.catalog.run_id != self.run_id or resolver.catalog.snapshot_id != self.derivation["catalog_snapshot_id"]
         )):
             raise ValueError("resolution catalog must match the run's declared lookup state")
-        checkpoint = resolver.catalog.checkpoint() if frozen else None
+        if frozen:
+            resolver.catalog.begin_mutations()
         try:
-            return self._resolve_transaction(result, resolver)
+            resolution = self._resolve_transaction(result, resolver)
         except BaseException:
             if frozen:
-                resolver.catalog.restore(checkpoint)
+                resolver.catalog.rollback_mutations()
             raise
+        if frozen:
+            resolver.catalog.commit_mutations()
+        return resolution
 
     def _resolve_transaction(self, result, resolver):
         with self._write():
@@ -457,9 +462,9 @@ class RunStore:
         from .missing_recovery import missing_facts, missing_manifest, MissingStore
         continuation = missing_facts(self)
 
+        profile = report_profile(self, collection=selection, checkpoint=captured, missing=continuation)
         def record(kind, **fields):
-            return {"schema_version": 10 if continuation else 9 if captured else 8 if selection else 7 if prefix_aware(self) else 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
-
+            return {"schema_version": profile.export, "type": kind, "run_id": self.run_id, **fields}
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
         if self.derivation is not None:
             yield record("analysis_derived", derivation=self.derivation,

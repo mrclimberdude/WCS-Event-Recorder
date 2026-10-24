@@ -74,7 +74,7 @@ def test_cli_failures_preserve_honest_status(failed_saved_parent,tmp_path,monkey
     assert main(plan_args(parent,path)) == 0
     if boundary == "comparison":
         def fail(*a,**kw): raise ComparisonError("controlled comparison failure")
-        monkeypatch.setattr("wcs_event_recorder.cli.compare_runs",fail)
+        monkeypatch.setattr("wcs_event_recorder.cli_recovery.compare_runs",fail)
     else:
         def fail(*a,**kw):
             if boundary == "interrupt": raise KeyboardInterrupt()

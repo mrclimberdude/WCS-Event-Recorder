@@ -19,6 +19,7 @@ from .resolution import NORMALIZATION_VERSION
 from .run_store import RunStore
 from .storage import Database, StorageError
 from .windows import seconds_to_frames
+from .methods import method_spec
 from .read_evidence import memo_store
 
 
@@ -49,18 +50,11 @@ def validate_reuse(store, *, complete):
     info = store.derivation
     if info is None:
         raise ReprocessingError("analysis is not a derived run")
-    if info["method_version"] == MISSING_METHOD:
-        from .missing_recovery import validate_missing_analysis
-        return validate_missing_analysis(store, complete=complete)
-    if info["method_version"] in {SAVED_METHOD, PREFIX_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD}:
-        from .saved_recovery import validate_saved_analysis
-        return validate_saved_analysis(store, complete=complete)
-    if info["method_version"] in COLLECTION_METHODS:
-        from .collection_analysis import validate_collection_analysis
-        return validate_collection_analysis(store, complete=complete)
-    if info["method_version"] == RECOVERY_METHOD:
-        from .recovery_store import validate_recovery_analysis
-        return validate_recovery_analysis(store, complete=complete)
+    return method_spec(info["method_version"]).validate(store, complete=complete)
+
+
+def _validate_pure_reuse(store, *, complete):
+    info = store.derivation
     if (store.run.configuration.get("analysis_kind") != "offline_reprocess"
             or store.run.configuration.get("reprocessing_method") != METHOD):
         raise ReprocessingError("derived run lacks its declared reprocessing configuration")
@@ -191,7 +185,7 @@ def validate_parent(store):
         validate_closed_evidence(current)
         if current.derivation is None:
             break
-        recovered_boundary = current.derivation["method_version"] in {SAVED_METHOD, CHECKPOINT_COMPLETE_METHOD, MISSING_METHOD}
+        recovered_boundary = method_spec(current.derivation["method_version"]).resets_parent_completion
         current = validate_reuse(current, complete=True)
         if recovered_boundary:
             break  # This edge validates raw evidence from its unsuccessful parent.

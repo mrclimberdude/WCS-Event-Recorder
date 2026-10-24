@@ -2,7 +2,6 @@
 
 import json
 import logging
-from contextlib import nullcontext
 from dataclasses import replace
 from importlib.metadata import version
 from uuid import uuid4
@@ -13,19 +12,18 @@ from copy import deepcopy
 from .analysis import new_run
 from .audd import AudDRecognizer, create_client
 from .codecs import json_text, result_from_row, utc_now
-from .diagnostics import failure_message
+from .collection_dispatch import CollectionMessages, dispatch_collection
 from .lineage import (ALLOCATION, MISSING_METHOD, PREFIX_TERMINATION, SAVED_TERMINATION,
                       check_acyclic, digest, observation_origin, payload_digest)
 from .missing_plan import slot_key, validate_missing_plan, write_plan
 from .missing_store import MissingStore, missing_attempt_result, validate_missing_session
-from .models import RecognitionOutcome, RecognitionStatus
+from .models import RecognitionStatus
 from .persistence import persist_results
-from .recognition import RecognitionServiceError, RecognitionStopped
 from .recovery import notify_created
 from .recovery_plan import RecoveryError, plan_settings, prepare_windows
 from .run_store import RunStore
 from .saved_recovery import prefix_coverage
-from .storage import Database, StorageError
+from .storage import Database
 
 logger = logging.getLogger(__name__)
 
@@ -61,44 +59,13 @@ def collect_missing(database, plan, token, *, client=None, on_created=None):
         with Database(database) as db:
             with db.transaction():
                 session = create_missing_session(db, RunStore(db, plan['parent_run_id']), plan)
-            fatal = False
-            try:
-                notify_created(on_created, session)
-                with (nullcontext(client) if client is not None else create_client(settings)) as http:
-                    pending = {}
-                    def before_request(window, wav_digest, size):
-                        item = prepared.items[pending['ordinal']]
-                        if window != item['window'] or wav_digest != item['wav_sha256'] or size != item['wav_bytes']:
-                            raise RecoveryError('dispatch differs from verified prepared WAV')
-                        pending['attempt_id'] = session.begin_attempt(pending['ordinal'], window, wav_digest, size)
-                    recognizer = AudDRecognizer(http, token, settings, before_request=before_request)
-                    for slot in plan['selected_windows']:
-                        pending.clear()
-                        pending['ordinal'] = slot['ordinal']
-                        try:
-                            outcome = recognizer.recognize(prepared.audio(slot['ordinal']))
-                        except RecognitionServiceError as exc:
-                            fatal = exc.stop_run
-                            outcome = RecognitionOutcome('audd', RecognitionStatus.ERROR, exc.raw_evidence, error=str(exc))
-                        result = session.save_outcome(pending['attempt_id'], outcome)
-                        if result.error:
-                            try:
-                                logger.log(logging.ERROR if fatal else logging.WARNING,
-                                    'Missing collection %s; window %s; saved attempt %s: %s',
-                                    session.collection_id, slot['ordinal'], result.result_id, failure_message(result.provider, result.raw_evidence))
-                            except OSError:
-                                pass
-                        if fatal:
-                            raise RecognitionStopped('fatal missing-window outcome saved; no later request')
-                session.complete()
-            except BaseException as exc:
-                try:
-                    session.stop('interrupted' if isinstance(exc, KeyboardInterrupt) else 'failed',
-                        'interrupted' if isinstance(exc, KeyboardInterrupt) else 'fatal_provider' if fatal else 'execution_failure')
-                except (StorageError, ValueError):
-                    logger.error('Missing collection %s completion is unconfirmed', session.collection_id)
-                raise
-            return {'collection_id': session.collection_id, 'requests_dispatched': recognizer.requests_sent}
+            dispatched = dispatch_collection(session, session.collection_id, prepared, plan, token, settings,
+                messages=CollectionMessages("Missing collection", "dispatch differs from verified prepared WAV",
+                    "fatal missing-window outcome saved; no later request",
+                    "Missing collection %s completion is unconfirmed"),
+                logger=logger, client=client, client_factory=create_client, recognizer_factory=AudDRecognizer, on_created=on_created)
+            return {'collection_id': session.collection_id, 'requests_dispatched': dispatched}
+
 
 
 def make_missing_analysis_plan(session, through):

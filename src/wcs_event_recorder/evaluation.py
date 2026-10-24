@@ -3,10 +3,13 @@
 import hashlib
 import json
 import re
+from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from statistics import mean, median
+
+from .methods import report_profile
 
 from .codecs import json_text
 from .inputs import load_json
@@ -158,16 +161,52 @@ def load_labels(path):
         raise EvaluationError(f"invalid evaluation labels '{path}': {exc}") from exc
 
 
+class IntervalIndex:
+    """Index the validated ordered, nonoverlapping, half-open label intervals."""
+
+    def __init__(self, labels):
+        self.intervals = labels.intervals
+        self.starts = tuple(item.start_frame for item in self.intervals)
+        self.ends = tuple(item.end_frame for item in self.intervals)
+        boundaries = [0]
+        for item in self.intervals:
+            boundaries.append(boundaries[-1] + (item.kind in {"song", "transition"}))
+        self.boundaries = tuple(boundaries)
+
+    def classify(self, window):
+        first = bisect_right(self.ends, window.start_frame)
+        last = bisect_left(self.starts, window.end_frame)
+        if last - first == 1:
+            item = self.intervals[first]
+            if (item.kind == "song" and item.start_frame + item.start_tolerance_frames <= window.start_frame
+                    and window.end_frame <= item.end_frame - item.end_tolerance_frames):
+                return item, None
+        if self.boundaries[last] != self.boundaries[first]:
+            return None, "boundary_or_transition"
+        if last - first == 1 and item.start_frame <= window.start_frame and window.end_frame <= item.end_frame:
+            return None, item.kind
+        return None, "unlabeled_or_mixed"
+
+
 def _classify_window(window, labels):
-    relevant = [item for item in labels.intervals if item.start_frame < window.end_frame and item.end_frame > window.start_frame]
-    for item in relevant:
-        if item.kind == "song" and item.start_frame + item.start_tolerance_frames <= window.start_frame and window.end_frame <= item.end_frame - item.end_tolerance_frames:
-            return item, None
-    if any(item.kind in {"song", "transition"} for item in relevant):
-        return None, "boundary_or_transition"
-    if len(relevant) == 1 and relevant[0].start_frame <= window.start_frame and window.end_frame <= relevant[0].end_frame:
-        return None, relevant[0].kind
-    return None, "unlabeled_or_mixed"
+    return IntervalIndex(labels).classify(window)
+
+
+def _opportunities(config, labels, count):
+    """Count eligible start indices analytically, including grid clipping.
+
+    Tolerated interiors include their end for a window ending exactly there.
+    Integer ceiling/floor avoids rounding at frame boundaries or huge grids.
+    """
+    opportunities = Counter()
+    for item in labels.intervals:
+        if item.kind != "song":
+            continue
+        first = max(0, (item.start_frame + item.start_tolerance_frames + config.hop_frames - 1) // config.hop_frames)
+        last = min(count - 1, (item.end_frame - item.end_tolerance_frames - config.window_frames) // config.hop_frames)
+        if last >= first:
+            opportunities[item.interval_id] = last - first + 1
+    return opportunities
 
 
 def _ratio(numerator, denominator):
@@ -187,13 +226,10 @@ def evaluate_store(store, labels):
     for track in labels.tracks:
         for title, artist in track.aliases:
             aliases[metadata_key(title, artist)].add(track.track_label_id)
+    interval_index = IntervalIndex(labels)
     songs = {i.interval_id: i for i in labels.intervals if i.kind == "song"}
     planned = store.config.window_count(source.frame_count)
-    opportunities = Counter()
-    for i in range(planned):
-        item, _ = _classify_window(AudioWindow(source.source_id, i * store.config.hop_frames, store.config.window_frames), labels)
-        if item:
-            opportunities[item.interval_id] += 1
+    opportunities = _opportunities(store.config, labels, planned)
     counts = Counter({name: 0 for name in ("correct_match", "wrong_match", "no_match", "error", "identity_ambiguous", "excluded")})
     exclusions, raw_counts, resolution_counts = Counter(), Counter({s.value: 0 for s in RecognitionStatus}), Counter()
     results, attempts, correct = store.results(), [], {}
@@ -203,7 +239,7 @@ def evaluate_store(store, labels):
     latencies = []
     for result in results:
         raw_counts[result.status.value] += 1
-        item, exclusion = _classify_window(result.window, labels)
+        item, exclusion = interval_index.classify(result.window)
         interpreted = set()
         if result.candidate:
             interpreted = aliases.get(metadata_key(result.candidate.title, result.candidate.artist), set())
@@ -336,7 +372,7 @@ def evaluate_store(store, labels):
     }
     if store.derivation is not None:
         from .lineage import observation_origin, origin_summary, recovery_aware, reuse_link
-        report.update(schema_version=2, analysis_kind="offline_reprocess", derivation=store.derivation,
+        report.update(analysis_kind="offline_reprocess", derivation=store.derivation,
                       new_provider_requests=0, source_hash_provenance=store.derivation["source_hash_provenance"],
                       latency_basis="reused_original_observations", observations_are_independent_new_trials=False)
         report["windows_without_reused_outcome"] = report.pop("unattempted_windows")
@@ -349,7 +385,7 @@ def evaluate_store(store, labels):
             item["original_observation"] = origin_summary(origin)
         if recovery_aware(store):
             from .recovery import observation_inventory
-            report.update(schema_version=3, analysis_kind=store.run.configuration["analysis_kind"],
+            report.update(analysis_kind=store.run.configuration["analysis_kind"],
                           observation_provenance=observation_inventory(store), latency_basis="selected_observation_origins")
             report["selected_window_outcomes"] = report.pop("reused_window_outcomes")
             report["selected_coverage"] = report.pop("reused_coverage")
@@ -357,19 +393,15 @@ def evaluate_store(store, labels):
         from .lineage import saved_aware
         if saved_aware(store):
             from .saved_recovery import completion_facts
-            report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
+            report.update(saved_evidence_recovery=completion_facts(store),
                           completion_scope="Selected configured windows and rebuilt conclusions; historical EOF is unknown. Reused observations are not new acoustic trials.")
         if prefix:
             from .saved_recovery import completion_facts
             facts = completion_facts(store)
             input_count = facts["coverage"]["input_saved_windows"]
-            input_opportunities = Counter()
-            for i in range(input_count):
-                item, _ = _classify_window(AudioWindow(source.source_id, i * store.config.hop_frames, store.config.window_frames), labels)
-                if item:
-                    input_opportunities[item.interval_id] += 1
+            input_opportunities = _opportunities(store.config, labels, input_count)
             materialized_opportunities = Counter(item["expected_occurrence_id"] for item in attempts if item["expected_occurrence_id"] is not None)
-            report.update(schema_version=5, saved_prefix_recovery=facts, analysis_execution_complete=row["status"] == "completed_partial",
+            report.update(saved_prefix_recovery=facts, analysis_execution_complete=row["status"] == "completed_partial",
                           completion_scope="Only saved prefix observations are derived. Recording coverage is partial; a censored predicted ending is not scored as a song end.")
             report["grouping"].update(
                 input_eligible_windows_by_occurrence={key: input_opportunities[key] for key in songs},
@@ -379,11 +411,11 @@ def evaluate_store(store, labels):
     from .collection_analysis import collection_facts
     selection = collection_facts(store)
     if selection is not None:
-        report.update(schema_version=6, collection_recovery=selection)
+        report.update(collection_recovery=selection)
     from .checkpoints import checkpoint_facts
     captured = checkpoint_facts(store)
     if captured is not None:
-        report.update(schema_version=7, checkpoint_recovery=captured)
+        report.update(checkpoint_recovery=captured)
     from .missing_recovery import missing_facts
     continuation = missing_facts(store)
     if continuation is not None:
@@ -392,9 +424,10 @@ def evaluate_store(store, labels):
         for index, item in enumerate(report['selected_window_outcomes'], 1):
             if item['expected_occurrence_id'] is not None:
                 (shared if index <= parent_count else added)[item['expected_occurrence_id']] += 1
-        report.update(schema_version=8, missing_window_recovery=continuation,
+        report.update(missing_window_recovery=continuation,
             eligible_window_opportunities={'inherited_prefix': dict(shared), 'acquired_continuation': dict(added)},
             completion_scope='Selected prefix and acquired continuation are evaluated on unchanged labels. Reused evidence is not a new acoustic trial; censored predicted ends remain excluded.')
+    report["schema_version"] = report_profile(store, collection=selection, checkpoint=captured, missing=continuation).evaluation
     return report
 
 

@@ -131,7 +131,7 @@ def test_replay_cli_handles_interruption_without_success_summary(input_files, mo
         raise KeyboardInterrupt
         yield  # Make this a generator, interrupted when consumed.
 
-    monkeypatch.setattr("wcs_event_recorder.cli.replay", interrupted)
+    monkeypatch.setattr("wcs_event_recorder.cli_processing.replay", interrupted)
     assert main(["replay", "--manifest", str(input_files[0]), "--mode", "paced"]) == 130
     output = capsys.readouterr()
     assert "Interrupted" in output.err
@@ -183,7 +183,7 @@ def test_fixture_cli_preflight_does_not_consume_audio_or_create_output(input_fil
     def unexpected_source(*args):
         pytest.fail("fixture must be validated before constructing the stream")
 
-    monkeypatch.setattr("wcs_event_recorder.cli.FileAudioSource", unexpected_source)
+    monkeypatch.setattr("wcs_event_recorder.cli_processing.FileAudioSource", unexpected_source)
     assert main(list(map(str, fixture_args(input_files, fixture, output)))) == 1
     assert not output.exists()
     assert "incomplete" in capsys.readouterr().err
@@ -209,7 +209,7 @@ def test_fixture_cli_modes_and_chunk_sizes_preserve_media_results(input_files, r
     def controlled_replay(source, **kwargs):
         return real_replay(source, monotonic=lambda: now[0], sleep=sleep, **kwargs)
 
-    monkeypatch.setattr("wcs_event_recorder.cli.replay", controlled_replay)
+    monkeypatch.setattr("wcs_event_recorder.cli_processing.replay", controlled_replay)
     outputs = [tmp_path / "fast.jsonl", tmp_path / "paced.jsonl"]
     for output, mode, chunk in zip(outputs, ("accelerated", "paced"), ("0.3", "0.75")):
         args = fixture_args(input_files, recognition_inputs[2], output, "--mode", mode, "--chunk-seconds", chunk)
@@ -398,7 +398,7 @@ def test_aggregation_cli_modes_and_chunks_produce_equivalent_plays(input_files, 
     def controlled(source, **kwargs):
         return real_replay(source, monotonic=lambda: now[0], sleep=sleep, **kwargs)
 
-    monkeypatch.setattr("wcs_event_recorder.cli.replay", controlled)
+    monkeypatch.setattr("wcs_event_recorder.cli_processing.replay", controlled)
     outputs = [tmp_path / "fast.jsonl", tmp_path / "paced.jsonl"]
     for output, mode, chunk in zip(outputs, ("accelerated", "paced"), ("0.1", "0.75")):
         args = aggregation_args(input_files, aggregation_inputs[2], output, "--mode", mode, "--chunk-seconds", chunk)

@@ -4,7 +4,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from wcs_event_recorder import cli
+from wcs_event_recorder import cli, cli_processing
 from wcs_event_recorder.audd import source_sha256
 from wcs_event_recorder.run_store import RunStore
 from wcs_event_recorder.storage import Database
@@ -37,7 +37,7 @@ def mock_provider(monkeypatch):
             clients.append(client)
             return client
         monkeypatch.setenv("AUDD_API_TOKEN", TOKEN)
-        monkeypatch.setattr(cli, "create_client", create)
+        monkeypatch.setattr(cli_processing, "create_client", create)
         return calls, clients
     return install
 
@@ -51,8 +51,8 @@ def test_new_help_requires_no_inputs(name, capsys):
 
 def test_preview_requires_no_credential_http_client_hash_or_database(input_files, tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("AUDD_API_TOKEN", raising=False)
-    monkeypatch.setattr(cli, "create_client", lambda *_: (_ for _ in ()).throw(AssertionError("preview must stay offline")))
-    monkeypatch.setattr(cli, "source_sha256", lambda *_: (_ for _ in ()).throw(AssertionError("preview needs metadata, not a full hash read")))
+    monkeypatch.setattr(cli_processing, "create_client", lambda *_: (_ for _ in ()).throw(AssertionError("preview must stay offline")))
+    monkeypatch.setattr(cli_processing, "source_sha256", lambda *_: (_ for _ in ()).throw(AssertionError("preview needs metadata, not a full hash read")))
     assert cli.main(["plan-audd", "--manifest", str(input_files[0]), "--window-seconds", "0.25", "--hop-seconds", "0.25", "--max-requests", "8"]) == 0
     output = capsys.readouterr().out
     assert '"planned_requests": 8' in output and '"total_wav_bytes": 32352' in output and '"network_requests_made": 0' in output
@@ -61,7 +61,7 @@ def test_preview_requires_no_credential_http_client_hash_or_database(input_files
 
 def test_missing_token_is_a_preflight_error(arguments, monkeypatch):
     monkeypatch.delenv("AUDD_API_TOKEN", raising=False)
-    monkeypatch.setattr(cli, "create_client", lambda *_: (_ for _ in ()).throw(AssertionError("no client without credential")))
+    monkeypatch.setattr(cli_processing, "create_client", lambda *_: (_ for _ in ()).throw(AssertionError("no client without credential")))
     assert cli.main(arguments) == 1
     assert not database_path(arguments).exists()
 
@@ -179,12 +179,12 @@ def test_keyboard_interrupt_closes_client_and_marks_honest_partial_run(arguments
 
 def test_mocked_pacing_and_chunk_sizes_preserve_media_and_context(arguments, mock_provider, monkeypatch):
     calls, _ = mock_provider()
-    original_replay = cli.replay
+    original_replay = cli_processing.replay
     clock, sleeps = [0.0], []
     def sleep(delay):
         clock[0] += delay
         sleeps.append(delay)
-    monkeypatch.setattr(cli, "replay", lambda source, **kwargs: original_replay(source, **kwargs, monotonic=lambda: clock[0], sleep=sleep))
+    monkeypatch.setattr(cli_processing, "replay", lambda source, **kwargs: original_replay(source, **kwargs, monotonic=lambda: clock[0], sleep=sleep))
     assert cli.main(arguments) == 0 and sleeps == []
     assert cli.main([*arguments, "--mode", "paced", "--chunk-seconds", "0.75"]) == 0
     assert len(calls) == 16 and sum(sleeps) == pytest.approx(2)
