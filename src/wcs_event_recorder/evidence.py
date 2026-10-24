@@ -3,7 +3,12 @@
 from .models import RecognitionStatus
 
 
-def validate_play_evidence(play, source, evidence, resolutions, previous_plays, supported, *, analysis_stage="live_provisional"):
+def validate_play_evidence(play, source, evidence, resolutions, previous_plays, supported, *, analysis_stage="live_provisional", termination_policy=None):
+    if play.closure_reason == "planned_windows_complete":
+        if termination_policy != "saved_complete_grid_v1" or "historical_termination_unknown" not in play.uncertainty_flags:
+            raise ValueError("configured-grid closure requires saved recovery termination provenance")
+    elif play.closure_reason == "end_of_source" and termination_policy == "saved_complete_grid_v1":
+        raise ValueError("saved recovery cannot claim historical normal EOF")
     supports = []
     for result_id in play.recognition_result_ids:
         if result_id in supported or resolutions.get(result_id) != play.track_id:

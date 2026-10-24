@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .models import ExternalTrackMapping, Track
 from .resolution import NORMALIZATION_VERSION, metadata_key
-from .schema import APPLICATION_ID, ATTRIBUTION_STATEMENTS, SCHEMA_VERSION, STATEMENTS, TABLES, V1_TABLES, V2_TABLES, migrate_to_v3
+from .schema import APPLICATION_ID, ATTRIBUTION_STATEMENTS, SCHEMA_VERSION, STATEMENTS, TABLES, V1_TABLES, V2_TABLES, V3_TABLES, V4_TABLES, migrate_to_v3, migrate_to_v4, migrate_to_v5
 
 
 class StorageError(RuntimeError):
@@ -66,9 +66,9 @@ class Database:
             self.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             self.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             version = SCHEMA_VERSION
-        elif application != APPLICATION_ID or version not in {1, 2, SCHEMA_VERSION}:
+        elif application != APPLICATION_ID or version not in {1, 2, 3, 4, SCHEMA_VERSION}:
             raise StorageError(f"unrecognized database or unsupported schema version {version}: '{self.path}'")
-        elif not {1: V1_TABLES, 2: V2_TABLES, 3: TABLES}[version] <= {row["name"] for row in objects}:
+        elif not {1: V1_TABLES, 2: V2_TABLES, 3: V3_TABLES, 4: V4_TABLES, 5: TABLES}[version] <= {row["name"] for row in objects}:
             raise StorageError(f"database schema is incomplete: '{self.path}'")
         if self.execute("SELECT 1 FROM tracks WHERE normalization_version != ? LIMIT 1", (NORMALIZATION_VERSION,)).fetchone():
             raise StorageError("unsupported catalog normalization version")
@@ -80,6 +80,12 @@ class Database:
         if version == 2 and initialize:
             migrate_to_v3(self)
             version = 3
+        if version == 3 and initialize:
+            migrate_to_v4(self)
+            version = 4
+        if version == 4 and initialize:
+            migrate_to_v5(self)
+            version = 5
         self.schema_version = version
 
     @contextmanager

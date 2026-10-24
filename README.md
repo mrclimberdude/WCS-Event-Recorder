@@ -8,7 +8,7 @@ The first milestone is to process a short prerecorded event sample as if it were
 
 Phase 1 is implemented, and a bounded private competition-audio trial has demonstrated the end-to-end path: replay, recognition, identities, provisional plays, SQLite, scheduled context, inspection/export, and independent evaluation. The reviewed two-song reference yielded 11 correct eligible matches and 2 transport errors; other windows remain unscored. Acceptance limitations and bumper review remain open. Phase 2 steps 1/2 add safe diagnostics, offline reprocessing with preserved evidence and frozen catalog inputs, and comparison of original/revised conclusions.
 
-Next is bounded recovery of selected saved errors, followed by interrupted-analysis recovery from saved evidence and missing-window recognition. The remaining Phase 2 plan includes reviewed identity/schedule revisions, longer-recording resource checks, extensions to existing comparison reports, and validation throughout. See the [overall roadmap](docs/implementation-plan.md) for the six project phases, current statuses, and recovery milestones; these recovery/correction features are planned.
+Phase 2 step 3a adds bounded recovery of selected saved AudD errors. Step 3b1 now rebuilds complete saved observations from failed/interrupted analyses without audio, tokens or uploads, preserving originals and explicit uncertainty about historical EOF. Next is a terminal run's saved prefix (3b2a), then evidence from incomplete collections and unconfirmed-history checkpoints, followed by missing-window recognition (3c). Later work includes reviewed identity/schedule revisions, longer-recording resource checks, consolidated reports, and broader trials. See the [overall roadmap](docs/implementation-plan.md) for all six phases and the refined recovery dependencies.
 
 ## Setup and verification
 
@@ -103,7 +103,7 @@ Troubleshoot saved errors without another upload:
 .\.venv\Scripts\wcs-recorder.exe diagnose-run --database data/evaluation.sqlite3 --run-id YOUR-RUN-ID --output data/reports/run-diagnostics.json
 ```
 
-The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transport subtypes, historical unknowns, and read-only reports. The complete suite currently passes 780 tests; automated provider checks remain mocked.
+The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transport subtypes, historical unknowns, and read-only reports. Automated provider checks remain mocked; current recovery verification is recorded in the [recovery guide](docs/recovery.md).
 
 ## Reprocess saved evidence offline
 
@@ -112,7 +112,24 @@ The [diagnostics guide](docs/diagnostics.md) explains safe live messages, transp
 .\.venv\Scripts\wcs-recorder.exe compare-runs --database data/tracker.sqlite3 --baseline-run-id PARENT-RUN-ID --candidate-run-id CHILD-RUN-ID --output data/reports/comparison.json
 ```
 
-Reprocessing creates a separate analysis from a completed run, preserves its saved outcomes/timeline/schedule, and makes zero provider requests. No source files or token are required. Optional `--max-gap-seconds` changes grouping. The child has explicit evidence links, a frozen catalog seed, and unreviewed offline plays/context; the original stays inspectable. See the [reprocessing guide](docs/reprocessing.md) for comparisons, schema-3 migration, version-4 child exports, failure behavior, and private validation results.
+Reprocessing creates a separate analysis from a completed run, preserves its saved outcomes/timeline/schedule, and makes zero provider requests. No source files or token are required. Optional `--max-gap-seconds` changes grouping. The child has explicit evidence links, a frozen catalog seed, and unreviewed offline plays/context; the original stays inspectable. See the [reprocessing guide](docs/reprocessing.md) for comparisons, migration, export versions, failure behavior, and private validation results.
+
+## Recover selected saved errors
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe plan-recovery --database data/tracker.sqlite3 --run-id PARENT-RUN-ID --window 2 --window 10 --window 13 --max-requests 3 --output data/reports/recovery-plan.json
+```
+
+Planning verifies retained source audio and previews only explicitly selected error windows, without tokens, uploads, or database changes. The separate `recover-audd --database ... --plan ...` command uploads that selection, retains every attempt, reuses unaffected outcomes, and derives a new analysis. `show-recovery` inspects collection history; `analyze-recovery` repeats analysis of a completed collection entirely offline. See the [recovery guide](docs/recovery.md) for eligibility, exact commands, interruption behavior, reporting, and the private three-window acceptance example. No live recovery requests were made during implementation.
+
+## Recover complete saved evidence from an unsuccessful run
+
+```powershell
+.\.venv\Scripts\wcs-recorder.exe plan-saved-recovery --database data/tracker.sqlite3 --run-id FAILED-RUN-ID --output data/reports/saved-recovery-plan.json
+.\.venv\Scripts\wcs-recorder.exe recover-saved-run --database data/tracker.sqlite3 --plan data/reports/saved-recovery-plan.json
+```
+
+The recovered child uses explicit configured-window completion and preserves the unsuccessful original. Partial/running/fatal inputs are refused. Read the [saved-evidence recovery guide](docs/saved-recovery.md) for eligibility, final-play closure, reports and failure behavior. The complete suite passes **971 tests**, including **103 new step-3b1 cases**. Installed synthetic and private compatibility checks made zero real provider requests.
 
 ## Start here
 
@@ -135,6 +152,10 @@ Reprocessing creates a separate analysis from a completed run, preserves its sav
 - [Step 8 plan](docs/phase-1-step-8-plan.md): implemented provider/evaluation design, completed private baseline trial, and remaining acceptance limitations.
 - [Phase 2, step 1 plan](docs/phase-2-step-1-plan.md): implemented safe failure diagnostics, live explanations, and read-only saved-run troubleshooting.
 - [Phase 2, step 2 plan](docs/phase-2-step-2-plan.md): implemented offline evidence reprocessing, explicit lineage, frozen catalog inputs, comparison, and verification.
+- [Selected-error recovery](docs/recovery.md): offline plans, explicit bounded uploads, durable attempt history, offline analysis, and selected-observation reports.
+- [Phase 2, step 3a plan](docs/phase-2-step-3a-plan.md): implemented selected-error recovery design and acceptance scope.
+- [Saved-evidence recovery](docs/saved-recovery.md): offline planning and recovery of complete observations from unsuccessful analyses, honest termination and comparison.
+- [Phase 2, step 3b plan](docs/phase-2-step-3b-plan.md): implemented 3b1 design; partial-evidence recovery remains 3b2.
 - [AGENTS.md](AGENTS.md): durable guidance for coding agents and contributors.
 
 ## Repository layout
@@ -158,13 +179,17 @@ Reprocessing creates a separate analysis from a completed run, preserves its sav
 |   |-- evaluation.md
 |   |-- diagnostics.md
 |   |-- reprocessing.md
+|   |-- recovery.md
+|   |-- saved-recovery.md
 |   |-- phase-1-step-4-plan.md
 |   |-- phase-1-step-5-plan.md
 |   |-- phase-1-step-6-plan.md
 |   |-- phase-1-step-7-plan.md
 |   |-- phase-1-step-8-plan.md
 |   |-- phase-2-step-1-plan.md
-|   `-- phase-2-step-2-plan.md
+|   |-- phase-2-step-2-plan.md
+|   |-- phase-2-step-3a-plan.md
+|   `-- phase-2-step-3b-plan.md
 |-- scripts/
 |   `-- create_demo_inputs.py
 |-- src/

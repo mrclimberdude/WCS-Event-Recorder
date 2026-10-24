@@ -55,6 +55,18 @@ def result_document(result: RecognitionResult) -> dict:
     }
 
 
+def result_from_document(data):
+    if not isinstance(data, dict) or set(data) != {"result_id", "run_id", "window", "provider", "status", "raw_evidence", "candidate", "error"}:
+        raise ValueError("invalid normalized outcome document")
+    candidate = data["candidate"]
+    if candidate is not None and (not isinstance(candidate, dict) or set(candidate) != {"title", "artist", "external_mappings", "confidence"}):
+        raise ValueError("invalid normalized candidate document")
+    candidate = RecognitionCandidate(candidate["title"], candidate["artist"],
+        tuple(ExternalTrackMapping(**item) for item in candidate["external_mappings"]), candidate["confidence"]) if candidate else None
+    return RecognitionResult(data["result_id"], data["run_id"], AudioWindow(**data["window"]), data["provider"],
+                             RecognitionStatus(data["status"]), data["raw_evidence"], candidate, data["error"])
+
+
 def inference_from_json(value: str | None) -> Inference | None:
     if value is None:
         return None

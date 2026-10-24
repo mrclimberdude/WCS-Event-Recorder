@@ -14,7 +14,7 @@ from .attribution_store import attribution_document, context_summary, load_attri
 from .codecs import inference_from_json, json_text, result_document, result_from_row, source_document, source_from_row, track_from_document, utc_now
 from .evidence import validate_play_evidence
 from .inputs import parse_schedule, validate_schedule
-from .lineage import STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, reuse_link
+from .lineage import RECOVERY_METHOD, STAGE, FrozenTrackCatalog, derivation, load_catalog_snapshot, observation_origin, payload_digest, recovery_aware, reuse_link, saved_aware
 from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecision, SongPlay, TrackResolution
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
@@ -30,7 +30,8 @@ class RunStore:
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
-        if config.get("analysis_kind") == "offline_reprocess" and self.derivation is None:
+        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery"}
+                or config.get("aggregation_termination_policy") is not None) and self.derivation is None:
             raise StorageError("offline run is missing derivation metadata")
         self.config = WindowConfig(config["window_frames"], config["hop_frames"])
         self.policy = AggregationPolicy(config["max_gap_frames"], config["aggregation_policy"])
@@ -115,12 +116,18 @@ class RunStore:
             self._open()
             count = self.db.execute("SELECT count(*) FROM recognition_results WHERE run_id = ?", (self.run_id,)).fetchone()[0]
             parent = None
+            selected, attempt_id = result, None
             if self.derivation is not None:
                 parent = self.db.execute("SELECT * FROM recognition_results WHERE run_id = ? AND attempt_index = ?",
                     (self.derivation["parent_run_id"], count)).fetchone()
                 if parent_result_id is not None and (parent is None or parent["result_id"] != parent_result_id):
                     raise ValueError("reused outcome must reference the ordered parent result")
-                if parent is None or payload_digest(result_from_row(parent)) != payload_digest(result):
+                if parent is not None:
+                    selected = result_from_row(parent)
+                    if self.derivation["method_version"] == RECOVERY_METHOD:
+                        from .recovery_store import selected_result, session_for_analysis
+                        selected, attempt_id = selected_result(session_for_analysis(self.db, self.run_id), count + 1, selected)
+                if parent is None or payload_digest(selected) != payload_digest(result):
                     raise ValueError("reused outcome must preserve its committed parent payload")
                 parent_result_id = parent["result_id"]
             elif parent_result_id is not None:
@@ -139,8 +146,13 @@ class RunStore:
                 json_text(dict(result.raw_evidence)), result.error, self._next_event(),
             ))
             if parent is not None:
-                self.db.execute("INSERT INTO reused_result_links VALUES (?, ?, ?, ?, ?)", (
-                    self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id, payload_digest(result)))
+                if self.derivation["method_version"] == RECOVERY_METHOD:
+                    self.db.execute("INSERT INTO recovery_result_selections VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+                        self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id,
+                        self.derivation["recovery_id"], count + 1, attempt_id, payload_digest(result)))
+                else:
+                    self.db.execute("INSERT INTO reused_result_links VALUES (?, ?, ?, ?, ?)", (
+                        self.run_id, result.result_id, self.derivation["parent_run_id"], parent_result_id, payload_digest(result)))
 
     def resolve(self, result, resolver):
         """Catalog mutation and its historical decision either both commit or neither does."""
@@ -225,7 +237,8 @@ class RunStore:
                 row = self.db.execute("SELECT * FROM song_plays WHERE run_id = ? AND play_id = ?", (self.run_id, play_id)).fetchone()
                 if row:
                     previous[play_id] = AudioWindow(row["source_id"], row["start_frame"], row["frame_count"])
-            validate_play_evidence(play, self.source, evidence, resolutions, previous, supported, analysis_stage=self.analysis_stage)
+            validate_play_evidence(play, self.source, evidence, resolutions, previous, supported, analysis_stage=self.analysis_stage,
+                                   termination_policy=self.run.configuration.get("aggregation_termination_policy"))
             if self.derivation is not None and (play.reviewed or play.final_inference is not None or play.live_inference is not None):
                 raise ValueError("offline reprocessing must remain unreviewed without final/live inferences")
             self.db.execute("INSERT INTO song_plays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
@@ -259,6 +272,12 @@ class RunStore:
             summary["context"] = context_summary(self.db, self.run_id)
         if self.derivation is not None:
             summary.update(reused_outcomes=sum(counts.values()), new_provider_requests=0)
+            if self.derivation["method_version"] == RECOVERY_METHOD:
+                new = self.db.execute("SELECT count(*) FROM recovery_result_selections WHERE run_id = ? AND attempt_id IS NOT NULL", (self.run_id,)).fetchone()[0]
+                summary.update(newly_selected_retry_outcomes=new, reused_outcomes=sum(counts.values()) - new, recovery_id=self.derivation["recovery_id"])
+        if saved_aware(self):
+            from .saved_recovery import completion_facts
+            summary["saved_evidence_recovery"] = completion_facts(self)
         return summary
 
     def complete(self):
@@ -344,16 +363,31 @@ class RunStore:
         return load_attribution(self.db, self.run_id, play_id)
 
     def records(self):
-        """Yield version 2 (legacy) or 3 (context) inside the caller's read snapshot."""
+        """Yield historical or method-specific records in a consistent snapshot."""
         row = self.row()
 
         def record(kind, **fields):
-            return {"schema_version": 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
+            return {"schema_version": 6 if saved_aware(self) else 5 if recovery_aware(self) else 4 if self.derivation is not None else 3 if self.attributor is not None else 2, "type": kind, "run_id": self.run_id, **fields}
 
         yield record("run_started", started_at=row["started_at"], configuration=dict(self.run.configuration), source=source_document(self.source), application_version=row["application_version"], schedule_snapshot=self.schedule_snapshot(), warnings=json.loads(row["warnings_json"]))
         if self.derivation is not None:
             yield record("analysis_derived", derivation=self.derivation,
                          catalog_seed=load_catalog_snapshot(self.db, self.derivation["catalog_snapshot_id"]))
+        if saved_aware(self):
+            from .saved_recovery import completion_facts, inherited_manifest
+            yield record("saved_recovery_inputs", manifest=inherited_manifest(self), completion=completion_facts(self))
+        if recovery_aware(self):
+            from .recovery_store import RecoveryStore
+            ids = set()
+            if self.derivation.get("recovery_id"):
+                ids.add(self.derivation["recovery_id"])
+            for result in self.iter_results():
+                origin = observation_origin(self.db, self.run_id, result.result_id)
+                if origin.get("recovery_id"):
+                    ids.add(origin["recovery_id"])
+            for recovery_id in sorted(ids):
+                session = RecoveryStore(self.db, recovery_id)
+                yield record("recovery_collection", session=dict(session.row()), slots=[dict(s) for s in session.slots()], attempts=[dict(a) for a in session.attempts()])
         event_sql = """SELECT event_index, 'raw' AS kind, result_id AS id FROM recognition_results WHERE run_id = ?
             UNION ALL SELECT event_index, 'resolution', result_id FROM track_resolutions WHERE run_id = ?
             UNION ALL SELECT event_index, 'play', play_id FROM song_plays WHERE run_id = ?"""

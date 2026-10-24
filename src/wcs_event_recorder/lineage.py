@@ -9,6 +9,10 @@ from .resolution import InMemoryTrackCatalog, NORMALIZATION_VERSION
 from .storage import SQLiteTrackCatalog, StorageError
 
 METHOD = "saved_outcomes_reprocessing_v1"
+RECOVERY_METHOD = "selected_error_recovery_v1"
+SAVED_METHOD = "saved_evidence_recovery_v1"
+SAVED_TERMINATION = "saved_complete_grid_v1"
+ALLOCATION = "seed_origin_uuid_v1"
 STAGE = "offline_reprocessed"
 
 
@@ -31,9 +35,34 @@ def derivation(db, run_id):
         return None
     item = dict(row)
     item["configuration_changes"] = json.loads(item.pop("configuration_changes_json"))
-    if item["method_version"] != METHOD:
+    if item["method_version"] not in {METHOD, RECOVERY_METHOD, SAVED_METHOD}:
         raise StorageError("unsupported reprocessing method")
+    if item["method_version"] == RECOVERY_METHOD:
+        row = db.execute("SELECT recovery_id FROM recovery_analysis_links WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise StorageError("recovery derivation is missing its collection link")
+        item["recovery_id"] = row["recovery_id"]
+    if item["method_version"] == SAVED_METHOD and db.execute("SELECT 1 FROM analysis_recovery_manifests WHERE run_id = ?", (run_id,)).fetchone() is None:
+        raise StorageError("saved-evidence recovery is missing its manifest")
     return item
+
+
+def check_acyclic(db, run_id):
+    if db.schema_version < 3:
+        return
+    seen = set()
+    while True:
+        if run_id in seen:
+            raise ValueError("cyclic analysis lineage")
+        seen.add(run_id)
+        row = db.execute("SELECT parent_run_id FROM analysis_derivations WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            return
+        run_id = row[0]
+
+
+def saved_aware(store):
+    return store.run.configuration.get("aggregation_termination_policy") == SAVED_TERMINATION
 
 
 def load_catalog_snapshot(db, snapshot_id):
@@ -58,7 +87,9 @@ def capture_catalog(db):
 
 
 def reuse_link(db, run_id, result_id):
-    row = db.execute("SELECT * FROM reused_result_links WHERE run_id = ? AND result_id = ?", (run_id, result_id)).fetchone()
+    info = derivation(db, run_id)
+    table = "recovery_result_selections" if info is not None and info["method_version"] == RECOVERY_METHOD else "reused_result_links"
+    row = db.execute(f"SELECT * FROM {table} WHERE run_id = ? AND result_id = ?", (run_id, result_id)).fetchone()
     if row is None:
         raise StorageError("missing reused result origin link")
     return dict(row)
@@ -72,6 +103,14 @@ def observation_origin(db, run_id, result_id):
             raise StorageError("cyclic recognition evidence lineage")
         seen.add((run_id, result_id))
         link = reuse_link(db, run_id, result_id)
+        if link.get("attempt_id") is not None:
+            from .recovery_store import RecoveryStore, attempt_result
+            attempt = db.execute("SELECT * FROM recognition_retry_attempts WHERE attempt_id = ?", (link["attempt_id"],)).fetchone()
+            attempt_result(attempt)
+            session = RecoveryStore(db, link["recovery_id"])
+            return {"run_id": None, "result_id": None, "processed_at": attempt["outcome_saved_at"],
+                    "kind": "retry_attempt", "attempt_id": attempt["attempt_id"], "recovery_id": session.recovery_id,
+                    "dispatch_intent_at": attempt["dispatch_intent_at"], "recognition_configuration": session.plan["settings"]}
         run_id, result_id = link["parent_run_id"], link["parent_result_id"]
     row = db.execute("""SELECT r.processed_at, a.configuration_json FROM recognition_results r
         JOIN analysis_runs a ON a.run_id = r.run_id WHERE r.run_id = ? AND r.result_id = ?""", (run_id, result_id)).fetchone()
@@ -81,6 +120,26 @@ def observation_origin(db, run_id, result_id):
     return {"run_id": run_id, "result_id": result_id, "processed_at": row["processed_at"],
             "recognition_configuration": {k: configuration[k] for k in (
                 "connect_timeout", "read_timeout", "write_timeout", "pool_timeout") if k in configuration}}
+
+
+def origin_summary(origin):
+    return {key: origin[key] for key in ("run_id", "result_id", "processed_at", "kind", "attempt_id", "recovery_id", "dispatch_intent_at") if key in origin}
+
+
+def recovery_aware(store):
+    return store.run.configuration.get("track_id_allocation_policy") == ALLOCATION
+
+
+def stable_track_allocator(store):
+    from uuid import UUID, uuid5
+    seed = load_catalog_snapshot(store.db, store.derivation["catalog_snapshot_id"])
+    def allocate(result):
+        origin = observation_origin(store.db, store.run_id, result.result_id)
+        identity = origin.get("attempt_id") or origin["result_id"]
+        key = {"seed": seed["normalized_sha256"], "allocation": ALLOCATION,
+               "resolution": store.resolution_policy.version, "origin_kind": origin.get("kind", "original_result"), "origin_id": identity}
+        return str(uuid5(UUID("985f987e-2c25-4a9c-b41d-52c97ddba74c"), digest(key)))
+    return allocate
 
 
 class FrozenTrackCatalog(SQLiteTrackCatalog):

@@ -66,9 +66,10 @@ class InMemoryTrackCatalog:
 
 
 class TrackResolver:
-    def __init__(self, catalog: TrackCatalog, policy: ResolutionPolicy = ResolutionPolicy()):
+    def __init__(self, catalog: TrackCatalog, policy: ResolutionPolicy = ResolutionPolicy(), *, new_track_id=None):
         self.catalog = catalog
         self.policy = policy
+        self.new_track_id = new_track_id or (lambda result: str(uuid4()))
 
     def resolve(self, result: RecognitionResult) -> TrackResolution:
         if result.status != RecognitionStatus.MATCH:
@@ -108,6 +109,6 @@ class TrackResolver:
                     return unresolved("service_id_conflict", (target.track_id,))
             target = replace(target, external_mappings=tuple(dict.fromkeys((*target.external_mappings, *mappings))))
         else:
-            target = Track(str(uuid4()), candidate.title, candidate.artist, mappings)
+            target = Track(self.new_track_id(result), candidate.title, candidate.artist, mappings)
         self.catalog.save(target)
         return TrackResolution(result.result_id, ResolutionDecision.RESOLVED, self.policy.version, reason, target)

@@ -204,7 +204,8 @@ def build_run_diagnostics(store):
             settings = origin["recognition_configuration"]
         item = result_diagnostic(result, source, store.config, settings)
         if origin is not None:
-            item["reused_observation"] = {k: origin[k] for k in ("run_id", "result_id", "processed_at")}
+            from .lineage import origin_summary
+            item["reused_observation"] = origin_summary(origin)
         errors.append(item)
     counts = Counter({s.value: 0 for s in RecognitionStatus})
     counts.update(r.status.value for r in results)
@@ -245,6 +246,17 @@ def build_run_diagnostics(store):
                       source_hash_provenance=store.derivation["source_hash_provenance"], request_attempts_started=0,
                       new_provider_requests=0,
                       coverage_note="Saved outcomes and errors are reused original observations. This offline run made zero provider requests; original billing remains unknown.")
+        from .lineage import recovery_aware
+        if recovery_aware(store):
+            from .recovery import observation_inventory
+            report.update(schema_version=3, analysis_kind=store.run.configuration["analysis_kind"],
+                          observation_provenance=observation_inventory(store),
+                          coverage_note="Selected outcomes include explicit retry origins. Analysis makes zero requests; collection attempts are recorded separately and billing remains unknown.")
+        from .lineage import saved_aware
+        if saved_aware(store):
+            from .saved_recovery import completion_facts
+            report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
+                          coverage_note="Saved observations are reused without uploads. Configured-window completion does not confirm historical EOF; original status and billing remain separate.")
     return report
 
 
@@ -267,7 +279,7 @@ def diagnostic_lines(report):
     yield f"Run {report['run_id']}: {report['run_status']}. {report['status_note']}"
     yield f"Saved outcomes: {report['saved_outcomes']}/{report['planned_windows']} planned windows; errors: {report['error_count']}; windows without a saved result: {report['windows_without_saved_result']}"
     yield f"Outcomes: {report['outcome_counts']}; failure families: {report['failure_family_counts']}"
-    if report.get("analysis_kind") == "offline_reprocess":
+    if report.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery"}:
         yield f"Offline analysis; parent: {report['parent_run_id']}; new provider requests: 0; error facts describe original observations."
     yield report["coverage_note"]
     for item in report["errors"]:

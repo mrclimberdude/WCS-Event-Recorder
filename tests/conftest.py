@@ -125,3 +125,46 @@ def legacy_database(tmp_path):
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture
+def recovery_parent(database_run, store_factory, make_result, tmp_path):
+    """29 nonzero PCM windows, 22 matches/4 no-matches/3 AudD errors."""
+    import hashlib
+    from dataclasses import replace
+    from wcs_event_recorder.models import RecognitionStatus
+    from wcs_event_recorder.persistence import persist_results
+    path = tmp_path / "recovery.wav"
+    frames = 29 * 2000
+    with wave.open(str(path), "wb") as audio:
+        audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"".join((i % 32767).to_bytes(2, "little", signed=True) for i in range(frames)))
+    source = replace(database_run.source, source_id="recovery-source", audio_path=path, frame_count=frames)
+    parent = store_factory(database_run.db, source=source, attribution=True,
+        configuration_extra={"provider": "audd", "source_audio_sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    results = []
+    for ordinal in range(1, 30):
+        status = RecognitionStatus.ERROR if ordinal in {2, 10, 13} else RecognitionStatus.NO_MATCH if ordinal in {3, 17, 23, 29} else RecognitionStatus.MATCH
+        result = make_result("Synthetic Song A" if ordinal < 16 else "Synthetic Song B", artist="Example Artist",
+            start=(ordinal - 1)*2000, frames=2000, run_id=parent.run_id, source_id=source.source_id, status=status)
+        results.append(replace(result, provider="audd", raw_evidence={"adapter_version": "audd_standard_v1",
+            "category": "transport_error", "stop_run": False, "elapsed_seconds": .1} if status == RecognitionStatus.ERROR else {"synthetic": True}))
+    persist_results(results, parent)
+    return parent
+
+
+@pytest.fixture
+def failed_saved_parent(recovery_parent, store_factory):
+    """Complete raw observations, with the final candidate never resolved."""
+    from dataclasses import replace
+    from uuid import uuid4
+    from wcs_event_recorder.models import RecognitionCandidate, RecognitionStatus
+    parent = store_factory(recovery_parent.db, source=recovery_parent.source, attribution=True,
+        configuration_extra={"provider": "audd", "source_audio_sha256": recovery_parent.run.configuration["source_audio_sha256"]})
+    for ordinal, result in enumerate(recovery_parent.results(), 1):
+        if ordinal == 29:
+            result = replace(result, status=RecognitionStatus.MATCH,
+                candidate=RecognitionCandidate("Previously Unresolved Song (Remix)", "New Artist"), error=None)
+        parent.result(replace(result, result_id=str(uuid4()), run_id=parent.run_id))
+    parent.stop("failed", "synthetic failure before derivation")
+    return parent

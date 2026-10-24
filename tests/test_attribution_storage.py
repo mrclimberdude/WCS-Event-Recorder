@@ -219,7 +219,7 @@ def test_readonly_v1_and_atomic_upgrade_preserve_history_and_exact_export(legacy
         assert RunStore(db, store.run_id).attribution(store.plays()[0].play_id) is None
     legacy.close()
     with Database(legacy.path) as db:
-        assert db.schema_version == 3
+        assert db.schema_version == 5
         for table, rows in original_rows.items():
             assert [tuple(row) for row in db.execute(f"SELECT * FROM {table}")] == rows
         assert db.execute("SELECT count(*) FROM play_attributions").fetchone()[0] == 0

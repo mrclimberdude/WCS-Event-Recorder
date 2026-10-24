@@ -102,3 +102,11 @@ The combined suite passed 598 tests, including 109 new adapter/CLI/evaluation ca
 Synthetic tests calculate correct/wrong/no-match/error denominators by hand, then cover unavailable ratios, aliases/version distinctions/collisions, resolver ambiguity, split/join cases, signed timing errors, tolerances, censoring, sparse opportunities, partial raw-only runs, source mismatches, deterministic reports, exclusive output, and read-only/no-network behavior.
 
 For the actual trial, prepare the private 3–5 minute sample with at least two known songs and an observed transition; label it independently; review `plan-audd`; explicitly execute one bounded provider run; reopen and inspect/export the database; then evaluate using these labels. Compare mismatches with evidence and record whether the observed result supports further trials. Keep poor results as measured findings rather than tuning labels or silently relaxing identity/grouping rules. The [provider guide](provider-recognition.md) explains execution and error behavior; the [step 8 plan](phase-1-step-8-plan.md) defines the remaining acceptance gate.
+
+## Recovery-aware evaluation
+
+[Selected-error recovery](recovery.md) preserves one selected outcome per window, with old observations and retry attempts retained in lineage. Recovery-aware analyses and pure descendants use report schema 3, `selected_window_outcomes`, `selected_coverage`, and `windows_without_selected_outcome`. Observation inventory and latency distinguish original/retry origins; analysis itself makes zero requests, while collection attempts are reported separately and billing remains unknown. Independent labels, exclusions and scoring rules are unchanged. Pure-derived reports retain schema 2 and original reports retain schema 1.
+
+## Complete saved-evidence recovery
+
+[Step 3b1](saved-recovery.md) uses evaluation schema 4 for recovered analyses and descendants, retaining selected-window fields and original/retry origins. A recovered computation can complete with full configured coverage while historical EOF remains unknown; the completion scope and final-play uncertainty state this explicitly. Rebuilt occurrences can be scored, but reused observations are not independent new acoustic trials. Source-hash requirements and independent-label scoring rules are unchanged.

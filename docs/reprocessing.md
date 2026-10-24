@@ -47,7 +47,7 @@ A successful reprocessing command prints a basic comparison. Save or repeat it i
 
 `--output` is optional. Comparison opens read-only in a consistent snapshot and requires a completed immediate parent/child pair. It validates source/window/schedule compatibility, evidence integrity, inherited settings, and seed provenance. Unrelated runs and incomplete children are refused; use `show-run` for partial evidence.
 
-Reports use schema 1 and method `saved_evidence_comparison_v1`. They include provenance, configuration changes, reused outcome counts, zero new requests, resolution differences, and occurrence comparisons. Resolution audit changes are distinct from selected identity changes: a historical `new_track` reason becoming `known_external_id` does not itself change the musical conclusion.
+Pure-reuse comparisons use schema 1 and method `saved_evidence_comparison_v1`. Recovery-aware pairs use schema 2 and `selected_observation_comparison_v1`, also comparing selected outcomes and their origins; see [recovery](recovery.md). They include provenance, configuration changes, reused outcome counts, zero new requests, resolution differences, and occurrence comparisons. Resolution audit changes are distinct from selected identity changes: a historical `new_track` reason becoming `known_external_id` does not itself change the musical conclusion.
 
 Occurrence alignment follows shared supporting evidence through the parent links. One-to-one pairs expose exact estimated boundary deltas, support/bridged/closing relationships, overlap relationships, uncertainty, and context differences. One-to-many components are splits, many-to-one are joins, and many-to-many remain complex regroupings. Added and removed occurrences remain explicit; the report does not guess an exclusive pairing.
 
@@ -72,13 +72,13 @@ Derived evaluation uses schema 2 with the unchanged scoring method. It identifie
 
 | Format | Current behavior |
 | --- | --- |
-| Database | Schema 3 for new/writable databases; read-only accepts 1/2/3 |
+| Database | Schema 5 for new/writable databases; read-only accepts 1/2/3/4/5 |
 | Original JSONL | Legacy version 2 or attribution-enabled version 3, unchanged |
-| Derived JSONL | Version 4, including legacy-derived runs and partial states |
-| Comparison JSON | Schema 1 |
-| Diagnostic/evaluation JSON | Original schema 1; derived schema 2 |
+| Derived JSONL | Earlier pure-derived version 4; selected-error version 5; saved-evidence recovery/descendants version 6 |
+| Comparison JSON | Pure reuse schema 1; selected-error schema 2; saved-evidence recovery/descendants schema 3 |
+| Diagnostic/evaluation JSON | Original schema 1; pure-derived schema 2; selected-error schema 3; saved-evidence recovery/descendants schema 4 |
 
-Writable opens migrate recognized schema 1/2 databases atomically to 3, preserving historical logical evidence and byte-identical original exports. Migration rebuilds the attribution/context graph to allow the offline stage, adds provenance tables, and checks foreign keys with enforcement enabled. Read-only commands do not migrate. A migrated database file changes even when historical exports stay identical.
+Writable opens migrate recognized schema 1/2/3/4 databases atomically to 5, preserving historical logical evidence and byte-identical original exports. Migration rebuilds the attribution/context graph to allow the offline stage, adds provenance tables, and checks foreign keys with enforcement enabled. Read-only commands do not migrate. A migrated database file changes even when historical exports stay identical.
 
 ## Failure behavior and limits
 
@@ -86,11 +86,11 @@ Raw outcome/link commits, resolution/catalog commits, play/context commits, and 
 
 A comparison failure after successful analysis leaves the child completed. The CLI prints its identity and tells you to rerun comparison. Report output failure similarly changes no run. Exit codes are 0 for success, 1 for processing/input/storage/report failure, 2 for argument errors, and 130 for interruption.
 
-Selective recognition retries, interrupted-run recovery, reviewed aliases/corrections, schedule edits, different window cadence, new input formats, and unrelated-run comparison remain later work. Audio retention is unchanged.
+[Selected-error recovery](recovery.md) now collects new observations separately and supports offline reanalysis of a completed collection. Pure reprocessing of recovery-aware analyses inherits the stable observation-based track-ID policy and selected-outcome provenance. [Saved-evidence recovery](saved-recovery.md) now rebuilds complete configured observations from terminal failed/interrupted analyses through a distinct method. Its complete-grid finalization and unknown historical EOF are inherited by pure descendants. Partial saved evidence, unconfirmed writers, reviewed aliases/corrections, schedule edits, different window cadence, new formats, and unrelated-run comparison remain later work. Audio retention is unchanged.
 
 ## Verification
 
-The full installed-package suite passed **780 tests**, including **86 new cases** beyond the 694-test baseline. New tests cover offline dependencies, lineage integrity, seed inheritance, grouping overrides, unknown/ambiguous/off-grid/midnight context, overlap/sparse/tail behavior, atomic failures, setup/interruption/terminal states, genuine schema-1/2 migrations and rollback, historical exports/reports, comparison alignment, and installed CLI behavior. Provider checks remain mocked.
+Step 2 verification passed **780 tests**, including **86 new cases** beyond the 694-test baseline. New tests cover offline dependencies, lineage integrity, seed inheritance, grouping overrides, unknown/ambiguous/off-grid/midnight context, overlap/sparse/tail behavior, atomic failures, setup/interruption/terminal states, genuine schema-1/2 migrations and rollback, historical exports/reports, comparison alignment, and installed CLI behavior. Provider checks remain mocked.
 
 A separate installed-CLI trial used a private copy of the existing baseline database. It reused 29 outcomes (22 matches, 4 no-matches, 3 errors), retained eight unreviewed offline occurrences and identical musical conclusions, and exposed seven resolution-reason audit changes. A second replay with the inherited seed was semantically equivalent. Recognition evaluation retained 11 correct eligible matches, 2 eligible errors, and 16 exclusions. Original database/audio/labels/reports stayed unchanged; the parent's export remained byte-identical after migration. No new provider requests were made.
 

@@ -30,7 +30,7 @@ The A occurrences share one track ID and have different play IDs. The final unkn
 
 `--schedule` is optional. When supplied, its exact validated JSON document is retained with a normalized-content hash, input path, provenance, and run-specific coverage warnings. Warnings do not fail processing. The separate attribution policy now uses the saved document to produce expected session/DJ segments, retaining gaps and conflicts explicitly. Revised schedule documents create different snapshots; repeated session IDs remain scoped to their document.
 
-The database is created if absent for processing. Recognized schema-version-1/2 databases now migrate atomically to version 3 on writable open; read-only inspection preserves versions 1/2/3. Unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed for fixture processing.
+The database is created if absent for processing. Recognized schema-version-1/2/3/4 databases now migrate atomically to version 5 on writable open; read-only inspection preserves versions 1/2/3/4/5. Unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed for fixture processing.
 
 ## Inspect after restarting
 
@@ -48,7 +48,7 @@ The recording, fixture, and original schedule files are not needed to inspect or
 
 ## Reprocess into the same database
 
-The file-processing example below creates another independent recognition run. Phase 2's separate [reprocess-run](reprocessing.md) instead reuses completed saved outcomes without opening audio/fixtures or contacting a provider, preserves explicit parent/result links and a frozen catalog seed, and supports comparison. Offline runs have an unreviewed `offline_reprocessed` stage; retries/resumption remain deferred.
+The file-processing example below creates another independent recognition run. Phase 2's separate [reprocess-run](reprocessing.md) instead reuses completed saved outcomes without opening audio/fixtures or contacting a provider, preserves explicit parent/result links and a frozen catalog seed, and supports comparison. Offline runs have an unreviewed `offline_reprocessed` stage. [Selected-error recovery](recovery.md) adds explicit retry collection and a separate analysis; complete observations from terminal failed/interrupted runs can be rebuilt through [saved-evidence recovery](saved-recovery.md); partial inputs and unconfirmed writers remain deferred.
 
 Run the same processing command again, optionally changing delivery to paced mode and the chunk size:
 
@@ -90,7 +90,7 @@ Phase 2 step 1 adds an optional result observer immediately after each raw commi
 | Stored status | Meaning |
 | --- | --- |
 | `running` | Processing began, but completion is unconfirmed; a killed process or failed terminal write can leave this state |
-| `completed` | Normal EOF and completion checks succeeded |
+| `completed` | Processing and completion checks succeeded; saved-evidence recovery explicitly uses configured-grid finalization with unknown historical EOF |
 | `failed` | A caught analysis/storage failure was recorded; earlier commits remain |
 | `interrupted` | A caught keyboard interruption was recorded; earlier commits remain |
 
@@ -100,15 +100,15 @@ No automatic resume or abandoned-run repair is implemented. Rerunning creates a 
 
 ## Database structure and limits
 
-The application identifies its database with a SQLite application ID and `user_version = 3`; database versions are independent of JSONL versions 1/2/3/4. Versions 1/2 remain readable and migrate atomically only on writable open. Standard-library sqlite3 supplies explicit transactions with foreign keys enabled on every connection, a finite lock timeout, and the default rollback journal. No new runtime dependency is required.
+The application identifies its database with a SQLite application ID and `user_version = 5`; database versions are independent of JSONL versions 1/2/3/4/5/6. Versions 1/2/3/4 remain readable and migrate atomically only on writable open. Standard-library sqlite3 supplies explicit transactions with foreign keys enabled on every connection, a finite lock timeout, and the default rollback journal. No new runtime dependency is required.
 
-The schema contains `recording_sources`, `schedule_snapshots`, `analysis_runs`, `tracks`, `track_mappings`, `recognition_results`, `track_resolutions`, `resolution_conflicts`, `song_plays`, `play_evidence`, and `play_overlaps`, with `play_attributions`, `context_segments`, and `context_candidates` added in schema 2. Schema 3 adds `analysis_catalog_snapshots`, `analysis_derivations`, and `reused_result_links`, and extends the attribution/context graph to permit the offline stage while preserving historical values. Integer source frames are authoritative for media timing. UTC instants and the named event timezone are retained. Processing timestamps are separate.
+The schema contains `recording_sources`, `schedule_snapshots`, `analysis_runs`, `tracks`, `track_mappings`, `recognition_results`, `track_resolutions`, `resolution_conflicts`, `song_plays`, `play_evidence`, and `play_overlaps`, with `play_attributions`, `context_segments`, and `context_candidates` added in schema 2. Schema 3 adds `analysis_catalog_snapshots`, `analysis_derivations`, and `reused_result_links`, and extends the attribution/context graph to permit the offline stage while preserving historical values. Schema 4 adds `recognition_recoveries`, `recovery_slots`, `recognition_retry_attempts`, `recovery_analysis_links`, and `recovery_result_selections`, and rebuilds the derivation method constraint atomically. Collection has its own status and durable pre-dispatch/outcome commits; no write transaction spans HTTP. Schema 5 adds `analysis_recovery_manifests`, the `saved_evidence_recovery_v1` method and the `planned_windows_complete` play closure through an atomic dependency rebuild. Integer source frames are authoritative for media timing. UTC instants and the named event timezone are retained. Processing timestamps are separate.
 
 `play_evidence` preserves ordered support, bridged, and closing roles. One result may close an earlier play and support the next; a supporting detection can belong to only one play. Composite foreign keys prevent cross-run evidence, and application checks preserve compatible resolutions, estimated envelopes, and overlap references. Completion additionally requires every match to have a decision and every resolved detection to support a closed play.
 
-One synchronous pipeline owns a connection. Catalog lookup/update units use a write lock; inspection/export uses a consistent read transaction, which can briefly delay writers under the rollback journal. General parallel workers, retries, migrations beyond the explicit version-1/2-to-3 upgrade, and resumability are deferred. Original exports remain version 2/3; offline-derived exports use version 4 with explicit seed/lineage/origin records. Completion counts reused outcomes separately from new provider requests.
+One synchronous pipeline owns a connection. Catalog lookup/update units use a write lock; inspection/export uses a consistent read transaction, which can briefly delay writers under the rollback journal. General parallel workers and resume-in-place are deferred. Explicit selected-error retries retain separate attempts and never rewrite the parent. Original exports remain version 2/3; earlier offline-derived exports use version 4; selected-error analyses and descendants use version 5 with collection/selection/origin records; saved-evidence recovery and descendants use version 6 with input manifests and explicit completion facts. Completion counts reused outcomes separately from new provider requests.
 
-A source ID is bound to its resolved private path, event/room, start/timezone, audio format, and frame count. Conflicting metadata is rejected. Keep source files unchanged: matching metadata does not verify byte identity, and relocation/content-hash workflows are not yet implemented. Audio is neither copied nor embedded by persistence.
+A source ID is bound to its resolved private path, event/room, start/timezone, audio format, and frame count. Conflicting metadata is rejected. Keep source files unchanged: matching metadata alone does not verify byte identity. Recovery verifies the complete saved SHA-256 and permits an explicit byte-identical relocated path in its bound plan without rewriting the source record. Audio is neither copied nor embedded by persistence.
 
 ## Automated verification
 

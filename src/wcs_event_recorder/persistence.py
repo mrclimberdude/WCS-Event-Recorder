@@ -7,7 +7,7 @@ from pathlib import Path
 from .aggregation import SongPlayAggregator
 from .codecs import json_text
 from .models import RecognitionStatus
-from .lineage import FrozenTrackCatalog, load_catalog_snapshot
+from .lineage import FrozenTrackCatalog, load_catalog_snapshot, recovery_aware, stable_track_allocator
 from .resolution import TrackResolver
 from .run_output import RunOutputError
 from .run_store import RunStore
@@ -25,7 +25,8 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                 cleanup.callback(close)
             catalog = (FrozenTrackCatalog(store.db, store.run_id, load_catalog_snapshot(store.db, store.derivation["catalog_snapshot_id"]))
                        if store.derivation is not None else SQLiteTrackCatalog(store.db))
-            resolver = TrackResolver(catalog, store.resolution_policy)
+            resolver = (TrackResolver(catalog, store.resolution_policy, new_track_id=stable_track_allocator(store))
+                        if recovery_aware(store) else TrackResolver(catalog, store.resolution_policy))
             aggregator = SongPlayAggregator(store.source, store.config, store.run_id, store.policy, analysis_stage=store.analysis_stage)
             for result in iterator:
                 store.result(result)
@@ -41,7 +42,9 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                     store.play(play)
                     if on_play is not None:
                         on_play(play, resolver.catalog.get(play.track_id))
-            for play in aggregator.finish():
+            termination = store.run.configuration.get("aggregation_termination_policy")
+            finished = aggregator.finish(termination_policy=termination) if termination else aggregator.finish()
+            for play in finished:
                 store.play(play)
                 if on_play is not None:
                     on_play(play, resolver.catalog.get(play.track_id))

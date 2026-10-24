@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -156,8 +156,71 @@ REPROCESSING_STATEMENTS = (
         PRIMARY KEY(run_id, result_id), UNIQUE(run_id, parent_result_id))""",
 )
 
-STATEMENTS = V1_STATEMENTS + OFFLINE_ATTRIBUTION_STATEMENTS + REPROCESSING_STATEMENTS
-TABLES = V2_TABLES | {"analysis_catalog_snapshots", "analysis_derivations", "reused_result_links"}
+V3_TABLES = V2_TABLES | {"analysis_catalog_snapshots", "analysis_derivations", "reused_result_links"}
+CURRENT_REPROCESSING_STATEMENTS = tuple(sql.replace(
+    "CHECK(method_version = 'saved_outcomes_reprocessing_v1')",
+    "CHECK(method_version IN ('saved_outcomes_reprocessing_v1','selected_error_recovery_v1'))"
+) for sql in REPROCESSING_STATEMENTS)
+
+RECOVERY_STATEMENTS = (
+    """CREATE TABLE recognition_recoveries (
+        recovery_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        created_at TEXT NOT NULL, ended_at TEXT,
+        status TEXT NOT NULL CHECK(status IN ('running','completed','failed','interrupted')),
+        plan_json TEXT NOT NULL, catalog_snapshot_id TEXT NOT NULL REFERENCES analysis_catalog_snapshots,
+        stop_reason TEXT CHECK(stop_reason IN ('fatal_provider','execution_failure','interrupted')),
+        FOREIGN KEY(parent_run_id, source_id) REFERENCES analysis_runs(run_id, source_id),
+        UNIQUE(recovery_id, parent_run_id), UNIQUE(recovery_id, parent_run_id, source_id),
+        CHECK((status = 'running') = (ended_at IS NULL)))""",
+    """CREATE TABLE recovery_slots (
+        recovery_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL CHECK(window_ordinal > 0),
+        parent_run_id TEXT NOT NULL, parent_result_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        start_frame INTEGER NOT NULL CHECK(start_frame >= 0), frame_count INTEGER NOT NULL CHECK(frame_count > 0),
+        FOREIGN KEY(recovery_id, parent_run_id, source_id) REFERENCES recognition_recoveries(recovery_id, parent_run_id, source_id),
+        FOREIGN KEY(parent_run_id, parent_result_id) REFERENCES recognition_results(run_id, result_id),
+        PRIMARY KEY(recovery_id, window_ordinal), UNIQUE(recovery_id, parent_result_id))""",
+    """CREATE TABLE recognition_retry_attempts (
+        attempt_id TEXT PRIMARY KEY, recovery_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL,
+        dispatch_intent_at TEXT NOT NULL, wav_sha256 TEXT NOT NULL, wav_bytes INTEGER NOT NULL CHECK(wav_bytes > 0),
+        outcome_json TEXT, outcome_sha256 TEXT, outcome_saved_at TEXT,
+        FOREIGN KEY(recovery_id, window_ordinal) REFERENCES recovery_slots,
+        UNIQUE(recovery_id, window_ordinal), UNIQUE(attempt_id, recovery_id, window_ordinal),
+        CHECK((outcome_json IS NULL) = (outcome_sha256 IS NULL)),
+        CHECK((outcome_json IS NULL) = (outcome_saved_at IS NULL)))""",
+    """CREATE TABLE recovery_analysis_links (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, recovery_id TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(recovery_id, parent_run_id) REFERENCES recognition_recoveries(recovery_id, parent_run_id),
+        UNIQUE(run_id, recovery_id))""",
+    """CREATE TABLE recovery_result_selections (
+        run_id TEXT NOT NULL, result_id TEXT NOT NULL, parent_run_id TEXT NOT NULL, parent_result_id TEXT NOT NULL,
+        recovery_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL CHECK(window_ordinal > 0), attempt_id TEXT,
+        payload_sha256 TEXT NOT NULL,
+        FOREIGN KEY(run_id, result_id) REFERENCES recognition_results(run_id, result_id),
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, recovery_id) REFERENCES recovery_analysis_links(run_id, recovery_id),
+        FOREIGN KEY(parent_run_id, parent_result_id) REFERENCES recognition_results(run_id, result_id),
+        FOREIGN KEY(attempt_id, recovery_id, window_ordinal) REFERENCES recognition_retry_attempts(attempt_id, recovery_id, window_ordinal),
+        PRIMARY KEY(run_id, result_id), UNIQUE(run_id, parent_result_id))""",
+)
+STATEMENTS = V1_STATEMENTS + OFFLINE_ATTRIBUTION_STATEMENTS + CURRENT_REPROCESSING_STATEMENTS + RECOVERY_STATEMENTS
+TABLES = V3_TABLES | {"recognition_recoveries", "recovery_slots", "recognition_retry_attempts", "recovery_analysis_links", "recovery_result_selections"}
+
+V4_TABLES = TABLES
+SAVED_REPROCESSING_STATEMENTS = tuple(sql.replace(
+    "'selected_error_recovery_v1'))", "'selected_error_recovery_v1','saved_evidence_recovery_v1'))"
+) for sql in CURRENT_REPROCESSING_STATEMENTS)
+SAVED_PLAY_STATEMENTS = tuple(sql.replace(
+    "'gap_exceeded','end_of_source'))", "'gap_exceeded','end_of_source','planned_windows_complete'))"
+) for sql in V1_STATEMENTS)
+SAVED_RECOVERY_STATEMENTS = (
+    """CREATE TABLE analysis_recovery_manifests (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, source_id TEXT NOT NULL, plan_json TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, source_id) REFERENCES analysis_runs(run_id, source_id))""",
+)
+STATEMENTS = SAVED_PLAY_STATEMENTS + OFFLINE_ATTRIBUTION_STATEMENTS + SAVED_REPROCESSING_STATEMENTS + RECOVERY_STATEMENTS + SAVED_RECOVERY_STATEMENTS
+TABLES = V4_TABLES | {"analysis_recovery_manifests"}
 
 
 def migrate_to_v3(db):
@@ -178,3 +241,55 @@ def migrate_to_v3(db):
     if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ValueError("foreign-key integrity failed during schema migration")
     db.execute("PRAGMA user_version = 3")
+
+
+def migrate_to_v4(db):
+    for statement in CURRENT_REPROCESSING_STATEMENTS[1:]:
+        for name in ("analysis_derivations", "reused_result_links"):
+            statement = statement.replace(name, name + "_v4")
+        db.execute(statement)
+    for name in ("analysis_derivations", "reused_result_links"):
+        db.execute(f"INSERT INTO {name}_v4 SELECT * FROM {name}")
+    db.execute("DROP TABLE reused_result_links")
+    db.execute("DROP TABLE analysis_derivations")
+    db.execute("ALTER TABLE analysis_derivations_v4 RENAME TO analysis_derivations")
+    db.execute("ALTER TABLE reused_result_links_v4 RENAME TO reused_result_links")
+    for statement in RECOVERY_STATEMENTS:
+        db.execute(statement)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during recovery migration")
+    db.execute("PRAGMA user_version = 4")
+
+
+def _rebuild_v5(db, names, statements, *, support_index=False):
+    """Rebuild a dependent graph without disabling foreign-key enforcement."""
+    import re
+    def renamed(sql):
+        for name in names:
+            sql = re.sub(r"\b" + name + r"\b", name + "_v5", sql)
+        return sql.replace("INDEX one_support_play ", "INDEX one_support_play_v5 ")
+    for statement in statements:
+        db.execute(renamed(statement))
+    for name in names:
+        db.execute(f"INSERT INTO {name}_v5 SELECT * FROM {name}")
+    for name in reversed(names):
+        db.execute(f"DROP TABLE {name}")
+    for name in names:
+        db.execute(f"ALTER TABLE {name}_v5 RENAME TO {name}")
+    if support_index:
+        db.execute("DROP INDEX one_support_play_v5")
+        db.execute("CREATE UNIQUE INDEX one_support_play ON play_evidence(result_id) WHERE role = 'support'")
+
+
+def migrate_to_v5(db):
+    methods = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections")
+    method_sql = SAVED_REPROCESSING_STATEMENTS[1:] + RECOVERY_STATEMENTS[3:]
+    _rebuild_v5(db, methods, method_sql)
+    plays = ("song_plays", "play_evidence", "play_overlaps", "play_attributions", "context_segments", "context_candidates")
+    play_sql = tuple(sql for sql in SAVED_PLAY_STATEMENTS if sql.startswith(("CREATE TABLE song_plays", "CREATE TABLE play_evidence", "CREATE TABLE play_overlaps", "CREATE UNIQUE INDEX one_support_play"))) + OFFLINE_ATTRIBUTION_STATEMENTS
+    _rebuild_v5(db, plays, play_sql, support_index=True)
+    for sql in SAVED_RECOVERY_STATEMENTS:
+        db.execute(sql)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during saved-evidence recovery migration")
+    db.execute("PRAGMA user_version = 5")

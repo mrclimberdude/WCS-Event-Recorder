@@ -49,12 +49,17 @@ class AudDSettings:
         return {**asdict(self), "adapter_version": ADAPTER_VERSION, "normalization_version": NORMALIZATION_VERSION, "diagnostics_version": DIAGNOSTICS_VERSION, "endpoint": ENDPOINT, "automatic_retries": 0}
 
 
-def upload_plan(source, config, settings):
+def window_wav_bytes(source, config):
     if config.window_frames > 12 * source.audio_format.sample_rate:
         raise InputValidationError("AudD windows must not exceed 12 seconds")
     size = 44 + config.window_frames * source.audio_format.frame_bytes
     if size > MAX_WAV_BYTES:
         raise InputValidationError(f"encoded WAV exceeds the {MAX_WAV_BYTES}-byte application limit")
+    return size
+
+
+def upload_plan(source, config, settings):
+    size = window_wav_bytes(source, config)
     attempts = config.window_count(source.frame_count)
     if attempts == 0:
         raise InputValidationError("AudD profile has no complete recognition windows")
@@ -140,11 +145,12 @@ def _transport_kind(exc):
 class AudDRecognizer:
     provider = "audd"
 
-    def __init__(self, client, token, settings=AudDSettings()):
+    def __init__(self, client, token, settings=AudDSettings(), *, before_request=None):
         if not isinstance(token, str) or not token.strip():
             raise InputValidationError("AUDD_API_TOKEN is required for provider execution")
         self.client, self._token, self.settings = client, token.strip(), settings
         self.requests_sent = 0
+        self.before_request = before_request
         for name in ("httpx", "httpcore"):
             logging.getLogger(name).setLevel(logging.WARNING)
 
@@ -178,6 +184,8 @@ class AudDRecognizer:
             safe = self._safe_evidence(evidence)
             raise RecognitionServiceError(failure_message(self.provider, safe), safe, stop_run=stop) from None
 
+        if self.before_request is not None:
+            self.before_request(audio.window, hashlib.sha256(wav).hexdigest(), len(wav))
         self.requests_sent += 1
         try:
             with self.client.stream(

@@ -19,6 +19,10 @@ from .diagnostics import DiagnosticError, diagnose_run, diagnostic_lines, format
 from .comparison import ComparisonError, compare_runs, comparison_lines
 from .reprocessing import ReprocessingError, reprocess_run
 from .lineage import derivation, load_catalog_snapshot
+from .recovery import analyze_recovery, collect_recovery
+from .recovery_plan import load_plan, plan_recovery
+from .recovery_store import recovery_report
+from .saved_recovery import load_saved_plan, plan_saved_recovery, recover_saved_run
 from .evaluation import EvaluationError, evaluate_run
 from .inputs import InputValidationError, load_json, load_recording, parse_schedule, validate_inputs, validate_schedule
 from .logging_config import configure_logging
@@ -146,15 +150,71 @@ def main(argv: list[str] | None = None) -> int:
     reprocessing.add_argument("--run-id", required=True, help="completed parent run")
     reprocessing.add_argument("--max-gap-seconds", type=_nonnegative_seconds)
     reprocessing.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
-    comparison = commands.add_parser("compare-runs", help="compare a completed run with its immediate offline child, read-only")
+    comparison = commands.add_parser("compare-runs", help="compare an analysis with its immediate offline child; saved recovery supports unsuccessful parents")
     comparison.add_argument("--database", type=Path, required=True)
     comparison.add_argument("--baseline-run-id", required=True)
     comparison.add_argument("--candidate-run-id", required=True)
     comparison.add_argument("--output", type=Path)
     comparison.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    recovery_plan = commands.add_parser("plan-recovery", help="preview selected saved AudD error windows offline and save a bound request plan")
+    recovery_plan.add_argument("--database", type=Path, required=True)
+    recovery_plan.add_argument("--run-id", required=True)
+    recovery_plan.add_argument("--window", type=_positive_integer, action="append", required=True, help="one-based error-window ordinal; repeat to select more")
+    recovery_plan.add_argument("--max-requests", type=_positive_integer, required=True)
+    recovery_plan.add_argument("--audio", type=Path, help="optional relocated byte-identical PCM WAV")
+    recovery_plan.add_argument("--output", type=Path, required=True)
+    for phase, default in (("connect", "5"), ("read", "30"), ("write", "30"), ("pool", "5")):
+        recovery_plan.add_argument(f"--{phase}-timeout", type=_positive_seconds, default=Decimal(default))
+    recovery_plan.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    recover = commands.add_parser("recover-audd", help="explicitly upload the selected windows in a saved recovery plan, then analyze")
+    recover.add_argument("--database", type=Path, required=True)
+    recover.add_argument("--plan", type=Path, required=True)
+    recover.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    for name, help_text in (("show-recovery", "inspect recovery request history read-only"), ("analyze-recovery", "derive a fresh analysis from completed recovery collection; no uploads")):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("--database", type=Path, required=True)
+        command.add_argument("--recovery-id", required=True)
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+        if name == "show-recovery":
+            command.add_argument("--details", action="store_true")
+            command.add_argument("--output", type=Path)
+    for name, help_text in (("plan-saved-recovery", "plan offline recovery of complete saved observations from a failed/interrupted run"),
+                            ("recover-saved-run", "derive a separate offline analysis from a saved recovery plan; no audio/token/uploads")):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("--database", type=Path, required=True)
+        if name == "plan-saved-recovery":
+            command.add_argument("--run-id", required=True)
+            command.add_argument("--output", type=Path, required=True)
+        else:
+            command.add_argument("--plan", type=Path, required=True)
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command == "plan-saved-recovery":
+            plan = plan_saved_recovery(args.database, args.run_id, output=args.output)
+            inputs = plan["input"]
+            coverage = inputs["coverage"]
+            print(f"Eligible parent: {args.run_id}; original status: {inputs['parent_status']}; saved/expected: {coverage['selected_windows']}/{coverage['expected_windows']}")
+            print(f"Catalog seed: {plan['catalog']['basis']}; source hash: {'inherited_not_reverified' if inputs['configuration'].get('source_audio_sha256') else 'unavailable'}")
+            print(f"Plan: {args.output}; SHA-256: {plan['plan_sha256']}; provider requests: 0; no database changes")
+            print("Offline configured-window finalization; historical EOF remains unknown. No source audio or token required.")
+            return 0
+        if args.command == "recover-saved-run":
+            return _saved_recovery_command(args)
+        if args.command == "plan-recovery":
+            settings = AudDSettings(args.max_requests, *(float(getattr(args, f"{phase}_timeout")) for phase in ("connect", "read", "write", "pool")))
+            plan = plan_recovery(args.database, args.run_id, args.window, settings, audio_path=args.audio, output=args.output)
+            print(f"Preview: {plan['planned_requests']} selected requests; ceiling: {settings.max_requests}; reuse: {plan['reused_outcomes']}; total WAV bytes: {plan['total_wav_bytes']}")
+            for slot in plan["selected_windows"]:
+                print(f"Window {slot['ordinal']}: [{slot['start_offset']}, {slot['end_offset']}); frames [{slot['start_frame']}, {slot['start_frame'] + slot['frame_count']}); {slot['start_time']}; {slot['error']['explanation']}")
+            print(f"Plan: {args.output}; SHA-256: {plan['plan_sha256']}; no provider requests or database changes")
+            return 0
+        if args.command in {"recover-audd", "analyze-recovery"}:
+            return _recovery_command(args)
+        if args.command == "show-recovery":
+            print(json.dumps(recovery_report(args.database, args.recovery_id, details=args.details, output=args.output), allow_nan=False, indent=2))
+            return 0
         if args.command == "reprocess-run":
             return _reprocess_command(args)
         if args.command == "compare-runs":
@@ -248,15 +308,21 @@ def _print_play(play, track, source):
 def _print_summary(summary):
     counts = summary["counts"]
     decisions = summary["resolution_counts"]
-    unit = "reused outcome(s)" if "reused_outcomes" in summary else "attempt(s)"
+    unit = "selected outcome(s)" if "newly_selected_retry_outcomes" in summary else "reused outcome(s)" if "reused_outcomes" in summary else "attempt(s)"
     print(
         f"Stored: {sum(counts.values())} {unit}, {counts['match']} match, {counts['no_match']} no_match, {counts['error']} error; "
         f"{summary['unique_tracks']} track(s), {summary['song_plays']} play(s); "
         f"resolved: {decisions['resolved']}, unresolved: {decisions['unresolved']}; uncertain plays: {summary['uncertain_plays']}", flush=True,
     )
+    if "newly_selected_retry_outcomes" in summary:
+        print(f"Selection: {summary['reused_outcomes']} reused parent outcome(s); {summary['newly_selected_retry_outcomes']} retry outcome(s); analysis made 0 provider requests")
     if "context" in summary:
         context = summary["context"]
         print(f"Schedule context: {context['plays']} play record(s), {context['segments']} segment(s); session segment counts: {context['session_segment_counts']}; DJ segment counts: {context['dj_segment_counts']}", flush=True)
+    if "saved_evidence_recovery" in summary:
+        facts = summary["saved_evidence_recovery"]
+        coverage = facts["coverage"]
+        print(f"Recovery coverage: {coverage['selected_windows']}/{coverage['expected_windows']} configured windows; original status: {facts['original_status']}; historical EOF unknown", flush=True)
 
 
 def _print_context(context, source):
@@ -364,6 +430,51 @@ def _diagnostic_hint(database, run_id):
         pass
 
 
+def _recovery_command(args):
+    if args.command == "recover-audd":
+        plan = load_plan(args.plan)
+        def created(session):
+            print(f"Recovery: {session.recovery_id}; collection running; parent: {session.row()['parent_run_id']}; selected: {session.plan['planned_requests']}; ceiling: {session.plan['settings']['max_requests']}", flush=True)
+            report = recovery_report(args.database, session.recovery_id)
+            print(f"Earlier recovery sessions for these slots: {report['earlier_sessions_for_slots']}", flush=True)
+        collection = collect_recovery(args.database, plan, os.environ.get("AUDD_API_TOKEN", ""), on_created=created)
+        recovery_id = collection["recovery_id"]
+        print(f"Recovery {recovery_id}: collection completed; process dispatches: {collection['requests_dispatched']}; provider billing unknown", flush=True)
+    else:
+        recovery_id = args.recovery_id
+    def analysis_created(store):
+        print(f"Analysis: {store.run_id}; recovery: {recovery_id}; parent: {store.derivation['parent_run_id']}; stage: {store.analysis_stage}; analysis provider requests: 0", flush=True)
+    try:
+        result = analyze_recovery(args.database, recovery_id, on_created=analysis_created)
+    except BaseException:
+        logger.error("Analysis did not complete for recovery %s. Inspect show-recovery; if collection completed, use analyze-recovery with this recovery ID without uploading again.", recovery_id)
+        raise
+    print(f"Recovery analysis completed: {result['run_id']}; collection: {recovery_id}; analysis provider requests: 0", flush=True)
+    _print_summary(result["summary"])
+    try:
+        for line in comparison_lines(compare_runs(args.database, result["parent_run_id"], result["run_id"])):
+            print(line)
+    except Exception as exc:
+        logger.error("Analysis %s completed; comparison failed: %s. Rerun compare-runs with the saved parent/child IDs.", result["run_id"], exc)
+        return 1
+    return 0
+
+
+def _saved_recovery_command(args):
+    def created(store):
+        print(f"Analysis: {store.run_id}; parent: {store.derivation['parent_run_id']}; stage: {store.analysis_stage}; provider requests: 0", flush=True)
+    result = recover_saved_run(args.database, load_saved_plan(args.plan), on_created=created)
+    print(f"Saved-evidence recovery completed: {result['run_id']}; original status preserved; historical EOF unknown", flush=True)
+    _print_summary(result["summary"])
+    try:
+        for line in comparison_lines(compare_runs(args.database, result["parent_run_id"], result["run_id"])):
+            print(line)
+    except Exception as exc:
+        logger.error("Analysis %s completed; comparison failed: %s. Rerun compare-runs with the saved parent/child IDs.", result["run_id"], exc)
+        return 1
+    return 0
+
+
 def _reprocess_command(args):
     def created(store):
         info = store.derivation
@@ -397,7 +508,8 @@ def _stored_command(args):
                 rows = db.execute("SELECT run_id, source_id, status, started_at FROM analysis_runs ORDER BY started_at, run_id").fetchall()
                 for row in rows:
                     info = derivation(db, row["run_id"])
-                    suffix = f"; kind: offline_reprocess; parent: {info['parent_run_id']}" if info else ""
+                    kind = "saved_evidence_recovery" if info and info["method_version"] == "saved_evidence_recovery_v1" else "selected_error_recovery" if info and info.get("recovery_id") else "offline_reprocess"
+                    suffix = f"; kind: {kind}; parent: {info['parent_run_id']}" if info else ""
                     print(f"{row['run_id']}: {row['status']}; source: {row['source_id']}; started: {row['started_at']}" + suffix)
                 print(f"{len(rows)} run(s)")
                 return 0
@@ -405,7 +517,9 @@ def _stored_command(args):
             row = store.row()
             print(f"Run {store.run_id}: {row['status']}" + (" (completion unconfirmed)" if row['status'] == 'running' else ""))
             if store.derivation is not None:
-                print(f"Kind: offline_reprocess; stage: {store.analysis_stage}; parent: {store.derivation['parent_run_id']}; new provider requests: 0")
+                print(f"Kind: {store.run.configuration['analysis_kind']}; stage: {store.analysis_stage}; parent: {store.derivation['parent_run_id']}; new provider requests: 0 during analysis")
+                if store.derivation.get("recovery_id"):
+                    print(f"Recovery collection: {store.derivation['recovery_id']}; inspect show-recovery for request history")
             print(f"Source: {store.source.source_id}; event: {store.source.event_id}; room: {store.source.room_id}; timezone: {store.source.timezone}")
             print(f"Schedule snapshot: {row['schedule_snapshot_id'] or 'none'}")
             print("Schedule attribution not produced (legacy run)" if store.attributor is None else f"Schedule attribution: {store.attribution_policy.version}; basis: schedule_only")

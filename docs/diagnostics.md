@@ -78,4 +78,12 @@ Synthetic tests cover the controlled exception hierarchy, safe provider explanat
 
 The full suite passed **694 tests**, including **96 new cases** beyond the 598-test baseline. Separate installed-CLI diagnosis explained the saved authentication failures and showed all three historical generic transport errors in the completed trial. Source/database hashes stayed unchanged and its existing JSONL export was byte-identical. No additional provider requests were made during this implementation or verification.
 
-The [step 1 design](phase-2-step-1-plan.md) records the original acceptance cases. Phase 2 step 2 now implements [offline reprocessing](reprocessing.md); the full suite passes 780 tests. Derived diagnostics retain the same failure-fact interpretation, identify original observations and inherited timeout settings, and report zero new provider requests while keeping historical billing unknown. Old generic transport errors remain generic. Selective retries, resumability, aliases, corrections, new formats, and changes to song boundaries remain subsequent work.
+The [step 1 design](phase-2-step-1-plan.md) records the original acceptance cases. Phase 2 step 2 now implements [offline reprocessing](reprocessing.md); step 2 verification passed 780 tests. Derived diagnostics retain the same failure-fact interpretation, identify original observations and inherited timeout settings, and report zero new provider requests while keeping historical billing unknown. Old generic transport errors remain generic. Step 3a now implements selected-error retries. General interrupted-run recovery, aliases, corrections, new formats, and changes to song boundaries remain subsequent work.
+
+## Recovery-aware diagnostics
+
+[Selected-error recovery](recovery.md) adds `show-recovery` for collection state and durable attempts. `diagnose-run` still describes one selected result per window; recovery-aware report schema 3 identifies original/retry origins, each observation's request settings and latency, and separate collection IDs. Zero analysis requests does not mean zero collection requests. Old generic subtypes remain unknown, billing stays unknown, and original/pure-derived diagnostic formats stay unchanged. Step 3a verification passed **868 tests**; provider verification remains mocked.
+
+## Complete saved-evidence recovery
+
+[Step 3b1](saved-recovery.md) produces diagnostic schema 4 for recovered analyses and descendants. Reports separate copied/expected coverage, unsuccessful original status, unknown historical EOF and zero new requests. Failed child coverage counts only committed copied results; old error subtypes and billing remain unknown. Current full verification passed 971 tests, including 103 new cases.

@@ -13,7 +13,7 @@ from .codecs import json_text, result_from_row, source_document
 from .inputs import parse_schedule, validate_schedule
 from .evidence import validate_play_evidence
 from .models import AudioWindow, RecognitionStatus
-from .lineage import METHOD, capture_catalog, digest, load_catalog_snapshot, payload_digest, reuse_link
+from .lineage import ALLOCATION, METHOD, RECOVERY_METHOD, SAVED_METHOD, SAVED_TERMINATION, capture_catalog, check_acyclic, digest, load_catalog_snapshot, payload_digest, reuse_link
 from .persistence import persist_results
 from .resolution import NORMALIZATION_VERSION
 from .run_store import RunStore
@@ -28,7 +28,7 @@ class ReprocessingError(ValueError):
 INHERITED_SETTINGS = (
     "provider", "window_frames", "hop_frames", "resolution_policy", "aggregation_policy",
     "max_gap_frames", "boundary_method", "attribution_policy", "attribution_boundary_policy",
-    "source_audio_sha256",
+    "source_audio_sha256", "track_id_allocation_policy", "aggregation_termination_policy",
 )
 
 
@@ -46,6 +46,12 @@ def validate_reuse(store, *, complete):
     info = store.derivation
     if info is None:
         raise ReprocessingError("analysis is not a derived run")
+    if info["method_version"] == SAVED_METHOD:
+        from .saved_recovery import validate_saved_analysis
+        return validate_saved_analysis(store, complete=complete)
+    if info["method_version"] == RECOVERY_METHOD:
+        from .recovery_store import validate_recovery_analysis
+        return validate_recovery_analysis(store, complete=complete)
     if (store.run.configuration.get("analysis_kind") != "offline_reprocess"
             or store.run.configuration.get("reprocessing_method") != METHOD):
         raise ReprocessingError("derived run lacks its declared reprocessing configuration")
@@ -112,7 +118,8 @@ def validate_closed_evidence(store):
             evidence[result_id] = (AudioWindow(raw["source_id"], raw["start_frame"], raw["frame_count"]), RecognitionStatus(raw["status"]))
             if raw["decision"] is not None:
                 resolutions[result_id] = raw["track_id"]
-        validate_play_evidence(play, store.source, evidence, resolutions, previous, supported, analysis_stage=store.analysis_stage)
+        validate_play_evidence(play, store.source, evidence, resolutions, previous, supported, analysis_stage=store.analysis_stage,
+                               termination_policy=store.run.configuration.get("aggregation_termination_policy"))
         supported.update(play.recognition_result_ids)
         previous[play.play_id] = play.window
         if store.attributor is not None:
@@ -125,6 +132,10 @@ def validate_closed_evidence(store):
 
 
 def validate_parent(store):
+    try:
+        check_acyclic(store.db, store.run_id)
+    except ValueError as exc:
+        raise ReprocessingError(str(exc)) from exc
     seen, current = set(), store
     while True:
         if current.run_id in seen:
@@ -133,6 +144,10 @@ def validate_parent(store):
         if current.row()["status"] != "completed":
             raise ReprocessingError("offline reprocessing requires a completed parent; recovery is a separate operation")
         config = current.run.configuration
+        if config.get("aggregation_termination_policy") not in {None, SAVED_TERMINATION}:
+            raise ReprocessingError("unsupported aggregation termination policy")
+        if config.get("track_id_allocation_policy") not in {None, ALLOCATION}:
+            raise ReprocessingError("unsupported track ID allocation policy")
         if config.get("boundary_method", "recognition_window_envelope_v1") != "recognition_window_envelope_v1":
             raise ReprocessingError("unsupported saved boundary method")
         audio_hash = config.get("source_audio_sha256")
@@ -165,7 +180,10 @@ def validate_parent(store):
         validate_closed_evidence(current)
         if current.derivation is None:
             break
+        recovered_boundary = current.derivation["method_version"] == SAVED_METHOD
         current = validate_reuse(current, complete=True)
+        if recovered_boundary:
+            break  # This edge validates raw evidence from its unsuccessful parent.
     return evidence_digest(store)
 
 

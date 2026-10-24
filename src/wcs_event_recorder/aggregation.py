@@ -117,10 +117,15 @@ class SongPlayAggregator:
         active.end_frame = result.window.end_frame
         return ()
 
-    def finish(self) -> tuple[SongPlay, ...]:
+    def finish(self, *, termination_policy=None) -> tuple[SongPlay, ...]:
+        if termination_policy not in {None, "saved_complete_grid_v1"}:
+            raise ValueError("unsupported aggregation termination policy")
         if self._finished:
             raise ValueError("aggregation has already finished")
         if self._received != self.config.window_count(self.source.frame_count):
             raise ValueError("cannot finish aggregation with missing recognition results")
         self._finished = True
+        if self._open and termination_policy == "saved_complete_grid_v1":
+            self._open.flags.add("historical_termination_unknown")
+            return (self._close("planned_windows_complete"),)
         return (self._close("end_of_source"),) if self._open else ()

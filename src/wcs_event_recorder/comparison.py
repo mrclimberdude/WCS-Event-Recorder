@@ -1,4 +1,4 @@
-"""Read-only comparison of a completed analysis with its offline child."""
+"""Read-only comparison of an analysis with its validated offline child."""
 
 from collections import Counter
 from dataclasses import asdict
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .attribution_store import attribution_document
 from .codecs import json_text
-from .lineage import load_catalog_snapshot, reuse_link
+from .lineage import SAVED_METHOD, load_catalog_snapshot, payload_digest, recovery_aware, reuse_link, saved_aware
 from .reprocessing import INHERITED_SETTINGS, ReprocessingError, evidence_digest, validate_parent, validate_reuse
 from .run_store import RunStore
 from .storage import Database
@@ -22,6 +22,9 @@ def differences(before, after):
 
 
 def resolution_view(resolution):
+    if resolution is None:
+        return {"decision": "not_applicable", "reason": None, "track_id": None, "metadata": None,
+                "external_mappings": [], "conflicting_track_ids": []}
     track = resolution.track
     return {"decision": resolution.decision.value, "reason": resolution.reason,
             "track_id": track.track_id if track else None,
@@ -77,7 +80,8 @@ def occurrence_components(before, after, result_map):
 def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
-    if parent.row()["status"] != "completed" or child.row()["status"] != "completed":
+    reconstructed = child.derivation["method_version"] == SAVED_METHOD
+    if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != "completed":
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
         validate_parent(child)
@@ -85,15 +89,32 @@ def build_comparison(parent, child):
     except ReprocessingError as exc:
         raise ComparisonError(str(exc)) from exc
     result_map = {r.result_id: reuse_link(child.db, child.run_id, r.result_id)["parent_result_id"] for r in child.iter_results()}
-    resolution_changes, identities = [], 0
+    mixed = recovery_aware(child)
+    outcome_changes = []
+    parent_results = {r.result_id: r for r in parent.iter_results()} if mixed else {}
+    resolution_changes, identities, recovered_decisions = [], 0, []
     for ordinal, result in enumerate(child.iter_results(), 1):
-        if result.candidate is None:
+        original = parent_results.get(result_map[result.result_id]) if mixed else None
+        if mixed and payload_digest(original) != payload_digest(result):
+            outcome_changes.append({"window_ordinal": ordinal, "parent_result_id": original.result_id, "child_result_id": result.result_id,
+                "before_status": original.status.value, "after_status": result.status.value,
+                "candidate_changed": original.candidate != result.candidate,
+                "before_payload_sha256": payload_digest(original), "after_payload_sha256": payload_digest(result)})
+        if result.candidate is None and (original is None or original.candidate is None):
             continue
-        before = resolution_view(parent.resolution(result_map[result.result_id]))
-        after = resolution_view(child.resolution(result.result_id))
+        unavailable = False
+        try:
+            before = resolution_view(parent.resolution(result_map[result.result_id]) if original is None or original.candidate else None)
+        except KeyError:
+            if not reconstructed:
+                raise
+            before = {**resolution_view(None), "decision": "unavailable"}
+            unavailable = True
+            recovered_decisions.append({"window_ordinal": ordinal, "parent_result_id": result_map[result.result_id], "child_result_id": result.result_id})
+        after = resolution_view(child.resolution(result.result_id) if result.candidate else None)
         changes = differences(before, after)
         if changes:
-            identity_changed = any(key in changes for key in ("decision", "track_id", "metadata"))
+            identity_changed = not unavailable and any(key in changes for key in ("decision", "track_id", "metadata"))
             identities += identity_changed
             resolution_changes.append({"window_ordinal": ordinal, "start_frame": result.window.start_frame,
                 "parent_result_id": result_map[result.result_id], "child_result_id": result.result_id,
@@ -119,7 +140,7 @@ def build_comparison(parent, child):
     config_before = {key: parent.run.configuration.get(key) for key in INHERITED_SETTINGS}
     config_after = {key: child.run.configuration.get(key) for key in INHERITED_SETTINGS}
     seed = load_catalog_snapshot(child.db, child.derivation["catalog_snapshot_id"])
-    return {
+    report = {
         "schema_version": 1, "method": "saved_evidence_comparison_v1",
         "baseline_run_id": parent.run_id, "candidate_run_id": child.run_id,
         "baseline_status": parent.row()["status"], "candidate_status": child.row()["status"],
@@ -141,6 +162,23 @@ def build_comparison(parent, child):
         "semantic_equivalent": not identities and all(item["kind"] == "unchanged" for item in occurrences),
         "equivalence_scope": "Selected identities, occurrence evidence/timing/uncertainty and scheduled context; IDs, processing times, stage and resolution reasons are audit differences. Equivalence does not establish accuracy.",
     }
+    if mixed:
+        from .recovery import observation_inventory
+        report.update(schema_version=2, method="selected_observation_comparison_v1", outcome_changes=outcome_changes,
+                      observation_provenance=observation_inventory(child),
+                      reused_outcomes=child.summary().get("reused_outcomes"),
+                      newly_selected_retry_outcomes=child.summary().get("newly_selected_retry_outcomes", 0),
+                      provider_requests_during_analysis=0)
+    if saved_aware(child):
+        from .saved_recovery import completion_facts
+        report.update(schema_version=3, method="saved_evidence_recovery_comparison_v1" if reconstructed else "saved_termination_comparison_v1",
+                      saved_evidence_recovery=completion_facts(child), baseline_derivation_complete=not reconstructed,
+                      recovered_resolution_decisions=recovered_decisions,
+                      occurrence_interpretation="Conclusions reconstructed from saved observations; added output does not imply new recognition or a baseline claim that no song played.")
+        if reconstructed:
+            report.update(semantic_equivalent=None,
+                          equivalence_scope="Baseline analysis is incomplete. Compare available stored conclusions; complete musical equivalence is not assessable.")
+    return report
 
 
 def compare_runs(database, baseline_run_id, candidate_run_id, output=None):
@@ -161,4 +199,8 @@ def compare_runs(database, baseline_run_id, candidate_run_id, output=None):
 def comparison_lines(report):
     yield f"Comparison: {report['baseline_run_id']} -> {report['candidate_run_id']}"
     yield f"Equivalent conclusions: {report['semantic_equivalent']}; identity changes: {report['identity_changed_windows']}; resolution audit changes: {len(report['resolution_changes'])}"
-    yield f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
+    yield f"Occurrences: {report['occurrence_summary']}; new provider requests during analysis: 0" if report["schema_version"] >= 2 else f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
+    if report["schema_version"] >= 2:
+        yield f"Changed window outcomes: {len(report['outcome_changes'])}; newly selected retry outcomes: {report['newly_selected_retry_outcomes']}; observation provenance identifies collection separately."
+    if report["schema_version"] == 3:
+        yield f"Baseline derivation complete: {report['baseline_derivation_complete']}; recovered decisions: {len(report['recovered_resolution_decisions'])}; historical EOF unknown."

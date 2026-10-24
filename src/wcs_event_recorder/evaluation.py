@@ -328,7 +328,7 @@ def evaluate_store(store, labels):
         "attempts": attempts,
     }
     if store.derivation is not None:
-        from .lineage import observation_origin, reuse_link
+        from .lineage import observation_origin, origin_summary, recovery_aware, reuse_link
         report.update(schema_version=2, analysis_kind="offline_reprocess", derivation=store.derivation,
                       new_provider_requests=0, source_hash_provenance=store.derivation["source_hash_provenance"],
                       latency_basis="reused_original_observations", observations_are_independent_new_trials=False)
@@ -339,7 +339,19 @@ def evaluate_store(store, labels):
             link = reuse_link(store.db, store.run_id, item["result_id"])
             origin = observation_origin(store.db, store.run_id, item["result_id"])
             item["parent_result_id"] = link["parent_result_id"]
-            item["original_observation"] = {k: origin[k] for k in ("run_id", "result_id", "processed_at")}
+            item["original_observation"] = origin_summary(origin)
+        if recovery_aware(store):
+            from .recovery import observation_inventory
+            report.update(schema_version=3, analysis_kind=store.run.configuration["analysis_kind"],
+                          observation_provenance=observation_inventory(store), latency_basis="selected_observation_origins")
+            report["selected_window_outcomes"] = report.pop("reused_window_outcomes")
+            report["selected_coverage"] = report.pop("reused_coverage")
+            report["windows_without_selected_outcome"] = report.pop("windows_without_reused_outcome")
+        from .lineage import saved_aware
+        if saved_aware(store):
+            from .saved_recovery import completion_facts
+            report.update(schema_version=4, saved_evidence_recovery=completion_facts(store),
+                          completion_scope="Selected configured windows and rebuilt conclusions; historical EOF is unknown. Reused observations are not new acoustic trials.")
     return report
 
 
