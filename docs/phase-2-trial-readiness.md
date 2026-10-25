@@ -1,6 +1,8 @@
 # Phase 2 offline acceptance and next room-recording trial
 
-The remaining Phase 2 software provides scoped reviewed identity/schedule revisions, bounded PCM preparation and consolidated history. Real acoustic acceptance is pending a longer room-microphone recording. No paid recognition requests were made to implement or verify these features.
+The implemented Phase 2 software provides scoped reviewed identity/schedule revisions, bounded PCM preparation and consolidated history. Real acoustic acceptance is pending a longer room-microphone recording. No paid recognition requests were made to implement or verify these features.
+
+Use the [operator walkthrough](operator-guide.md) for the recording-to-review sequence and the [status page](status.md) for current capabilities and remaining gates.
 
 ## Available offline checks
 

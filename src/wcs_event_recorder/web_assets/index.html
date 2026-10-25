@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Recorded music · WCS</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">WCS · MUSIC HISTORY</p><h1 id="event">Recorded music</h1><p id="room">One room, recorded music</p><p id="clock" class="muted"></p></header>
+    <div id="notice" role="status" aria-live="polite">Loading recorded history…</div>
+    <section aria-labelledby="summary-title"><h2 id="summary-title">About this history</h2><p id="analysis">Waiting for recorded history.</p></section>
+    <section aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">Recent recorded songs</h2><button id="refresh" type="button">Refresh</button></div><p id="empty">Loading history…</p><ol id="history"></ol><button id="older" type="button" hidden>Load older</button></section>
+    <section aria-labelledby="recognition-title"><h2 id="recognition-title">Latest saved recognition</h2><p id="recognition">No saved recognition available.</p><p class="muted">A recorded hint, not confirmation of an ongoing song.</p></section>
+    <section aria-labelledby="replay-title"><h2 id="replay-title">Replay preview</h2><p class="muted">Explore the recording timeline. No audio playback.</p><div class="controls"><button id="play" type="button" disabled>Play preview</button><label for="seek">Recording position</label><input id="seek" type="range" min="0" max="0" value="0" step="1" disabled></div><p id="position">Replay unavailable.</p><div id="replay-estimates"></div></section>
+    <footer>Approximate song times · Expected session and DJ are based on schedules.</footer>
+  </main>
+</body>
+</html>

@@ -4,6 +4,8 @@ Phase 2 step 3b1 rebuilds a separate analysis from a terminal failed/interrupted
 
 For example, all 29 outcomes may have committed before a failure resolving the last match, saving the final play/context, or completing the run. Recovery reuses those observations and recalculates resolutions, occurrences and expected scheduled context. An outcome can be a match, no-match or recoverable error; full observation coverage does not promise full recognition accuracy.
 
+The [central recovery chooser](operator-guide.md#choose-a-recovery-operation) covers all implemented modes. The table below describes this complete-grid method and its immediate alternatives.
+
 ## Choose the appropriate operation
 
 | Saved input | Command / eligibility |

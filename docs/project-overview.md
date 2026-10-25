@@ -16,21 +16,15 @@ Classifications may include competition, bumper, social, awards, showcase, works
 
 ## First milestone
 
-Take a prerecorded event sample and process it end-to-end as if it were happening live. Start with a short single-room sample and local database, then expand the same pipeline toward a full event and optional outputs. See the [implementation plan](implementation-plan.md) for the proposed phase boundaries and measurable acceptance criteria.
+Take a prerecorded event sample and process it end-to-end as if it were happening live. Start with a short single-room sample and local database, then expand the same pipeline toward a full event and optional outputs. See the [implementation plan](implementation-plan.md) for the implemented phase boundaries and remaining acceptance criteria.
 
 ## Roadmap and current priorities
 
-The project proceeds from the implemented short-recording proof of concept through reliable local recovery/correction (Phase 2), attendee/operational views (Phase 3), optional playlists (Phase 4), richer event inference (Phase 5), and independent live capture/event trials (Phase 6).
+Phases 1?3 software is implemented within its supported scope: file-based recognition/evidence, reliable local recovery/correction and metadata views/optional outputs. The [status page](status.md) identifies the latest full verification baseline and pending operational gates. The [active roadmap](implementation-plan.md) defines all six phases; the [operator walkthrough](operator-guide.md) connects the commands from a private recording through review and a local page.
 
-Consolidation releases A/B provide [reproducible offline benchmarks](benchmarks.md), exact historical-output checks, isolated migration fixtures, transaction-scoped read evidence, guarded collection/result cursors and hashing outside planner read transactions. Release B adds shared collection dispatch, immutable method/report routing, indexed evaluation with analytic opportunity counts, mutation-only catalog rollback and focused CLI modules. Historical reports, eligibility, evidence and schema remain compatible; see the [verification record](performance-maintainability-plan.md#release-b-verification-record). Scoped [identity/schedule revisions](revisions.md), [WAV preparation](audio-preparation.md) and [local history](history.md) are now implemented and verified. [Release C](performance-maintainability-plan.md#release-c-verification-record) is complete for measured developer workloads: 120 storage jobs / 600 isolated passes, a dependency inventory, an accepted keep-current decision and operating guidance. The latest full suite passes 1,653 tests, preserving all Release C cases, historical reports and 31 existing subcommand help outputs; four new commands intentionally extend root help. C3 was skipped as planned; whole-database checkpoints remain supported. Apply the [operating guidance](release-c-operating-limits.md) and declare/measure a larger trial's disk/time/memory envelope before relying on it.
+The next acceptance priority is a longer representative room-microphone recording with independent labels/activity observations and declared request, storage, latency and memory budgets. Existing synthetic checks and the short livestream baseline do not establish room accuracy or event capacity. See [trial readiness](phase-2-trial-readiness.md).
 
-Phase 2 diagnostics, offline reprocessing, and selected-error recovery from completed runs are implemented, along with complete saved-evidence recovery (3b1). Recovery has offline request plans, verified audio extraction, durable attempts, separate collection/analysis statuses, stable track IDs, and selected-observation reports. Mocked acceptance covers three selected windows, at most three requests, and reuse of 26 saved outcomes; private source planning and migration are checked offline. A live recovery trial remains separately enabled. Terminal saved prefixes (3b2a), explicit incomplete-collection choices (3b2b) and immutable running-history checkpoints (3b2c) are implemented. Bounded missing-window recognition and partial/full offline continuation (3c) are implemented. The [performance and maintainability consolidation](performance-maintainability-plan.md) completed releases A/B/C; [reviewed revisions](revisions.md), [WAV preparation](audio-preparation.md) and [local history](history.md) have since completed their supported software scope. See the [verification record](phase-2-completion-plan.md#verification-record) and [real-trial handoff](phase-2-trial-readiness.md). It addresses repeated evidence loading, collection bookkeeping, read-lock duration, shared workflows, evaluation and catalog rollback while preserving historical evidence and reports. Storage changes require a separate measured format decision.
-
-Step 3b1 now rebuilds complete configured observations from terminal failed/interrupted runs, using frozen plans, stable origin-based identities, separate lineage and explicit offline finalization without claiming historical EOF. Step 3b2b freezes explicit retry/parent choices without completing the collection. Step 3b2c captures committed running-history evidence and reconstructs it in a separately owned database; original writers/statuses remain untouched. Step 3c uses independent source/frame slots to collect a bounded missing suffix and reconstruct a separate partial or full-grid analysis. Installed acceptance combines ten saved observations with nineteen newly collected outcomes on the original 29-window timeline. Checkpoint-derived inputs retain explicit ownership; later live evidence does not enter an existing frozen plan automatically. Versioned identity/schedule corrections now accept supported successful complete/partial/checkpoint-derived inputs, preserve all unselected resolutions and use separately evaluated reviewed conclusions. Local history consolidates original, collection, recovery and review branches; WAV preparation preserves exact frame/clock mappings. Larger room-recording recognition/resource acceptance remains pending. Targeted validation is ongoing; see the [overall roadmap](implementation-plan.md).
-
-The [step 3b design](phase-2-step-3b-plan.md) and [saved-evidence recovery guide](saved-recovery.md) document implemented 3b1 commands, finalization/coverage limits and 971-test verification. Terminal saved-prefix recovery (3b2a) is implemented. The [collection guide](collection-analysis.md) and [checkpoint guide](checkpoints.md) document implemented 3b2b/3b2c commands and limits. The [missing-window guide](missing-recovery.md) documents implemented 3c planning, collection, continuation and coverage limits. Keep computation success, selected source coverage, collection status and historical EOF separate. The [updated roadmap](implementation-plan.md) records these dependencies, the completed initial resource checkpoint and remaining realistic workloads, and the reporting work already implemented. Explicit selection uses one supported nonfatal collection and its completed parent, with frozen per-slot choices; collection failure alone does not make the resulting source coverage partial.
-
-The implemented [3b2a design](phase-2-step-3b2a-plan.md) and [prefix guide](prefix-recovery.md) cover explicit prefix mode, `completed_partial`, censored finalization, unchanged source duration, coverage-aware scoring and schema-6 compatibility. Installed acceptance reconstructs ten saved observations from a 29-window source with audio/token absent and zero uploads, preserving the unsuccessful original. Berlin checks use only a compatibility copy, with historical report bytes and original private file hashes preserved. The implemented [step-3c design](phase-2-step-3c-plan.md) documents bounded missing-suffix collection, independent slots, partial/full continuation and migration/acceptance. Unsupported holes and unconfirmed running new collections remain outside the first release.
+Consolidation releases A/B/C are complete. The [storage decision](decisions/release-c-storage.md) retains the current format and whole-database checkpoints within [measured developer limits](release-c-operating-limits.md). Larger workloads require matching measurements. [Completed plans and verification records](index.md#historical-plans-and-verification) preserve the earlier requirements, compatibility evidence and milestone counts.
 
 ## Architecture
 
@@ -42,15 +36,17 @@ AudioSource (file now; one room microphone in Phase 6)
     `--> timestamped AudioChunks
              -> recognition adapter -> raw RecognitionResults
              -> Track matching + SongPlay aggregation
-             -> schedule correlation + event-state inference
+             -> expected schedule context (richer inference later)
              -> authoritative database
-                    -> public metadata web app
-                    -> optional Google Sheets operational view
-                    -> optional Spotify / Apple Music playlists
+                    -> bounded read-only safe metadata projection
+                           -> local/mobile history + recognition hints + replay
+                           -> metadata-only snapshots (public hosting gated)
+                           -> optional Sheets mirror + separate delivery state
+                    -> Spotify / Apple Music destinations (Phase 4)
 
 Saved recordings + evidence
     -> offline reprocessing
-    -> recognition retries, speech analysis, heat reconstruction
+    -> recognition retries (implemented); speech/heat inference (Phase 5)
     -> revised conclusions alongside preserved live predictions
 ```
 
@@ -105,8 +101,10 @@ Heat detection is a later, difficult inference problem. Potential evidence inclu
 
 ## Outputs
 
-- **Public website:** mobile-friendly now-playing and recently-played metadata, eventually filterable by day, room, context, division, round, heat, and DJ. Periodic refresh or live updates; no attendee login.
-- **Google Sheets:** optional live operational/debugging view with song, time, context, DJ, and confidence. It is never the authoritative datastore.
+The [Phase 3 execution plan](phase-3-plan.md) has all eight software steps implemented and verified: explicitly selected, bounded [safe metadata views](views.md), a [local HTTP/mobile page](web-view.md), refresh/latest-recognition/replay, private configuration, [metadata publication/withdrawal](publication.md), an optional [Sheets mirror](sheets.md), [developer resource controls](phase-3-operating-limits.md) and a [hosting/QR handoff](phase-3-deployment.md). These use saved per-run identities, retain uncertainty/partial coverage and exclude private evidence fields. Recent closed occurrences, latest recognition and replay estimates remain distinct; none proves ongoing music or writer liveness. Actual Sheets activation, public hosting and longer room-recording acceptance remain separate operational gates.
+
+- **Website:** implemented local/mobile recorded history, latest saved recognition, replay controls and static publication artifacts; no attendee login. Public activation and richer ongoing-song/filter behavior remain future work.
+- **Google Sheets:** optional bounded operational snapshot with song, recording time, expected context and uncertainty, using explicit destination ownership and independent retries. Actual activation is pending; it is never authoritative.
 - **Spotify and Apple Music:** optional catalog matching and playlist destinations. Resolve canonical tracks to service IDs, account for remixes/edits and ambiguous matches, and avoid automatically publishing questionable matches. Attendees receive public playlist links without authenticating with this application.
 
 ## Constraints and deferred decisions
@@ -115,4 +113,4 @@ Prioritize a standalone room microphone, recorder/computer, power and local stor
 
 Analyze event recordings, without using Spotify or Apple Music streams as fingerprinting or ML inputs. Do not distribute raw ballroom audio or embed full music playback in the initial app. Public outputs are metadata and outbound platform links.
 
-Hardware acquisition and sample recording may proceed; choose dedicated deployment hardware using measured single-room power, storage and reliability requirements. Defer line-input interfaces and venue adapters, dual-feed acquisition/synchronization/reconciliation, automated schedule scraping, heat inference, speech models, advanced bumper classification, cloud infrastructure, playlist authentication, exact retention periods, and further database migration until evidence justifies them. Phase 2 still proceeds through identity corrections, schedule revisions, report consolidation and longer acceptance.
+Hardware acquisition and sample recording may proceed; choose dedicated deployment hardware using measured single-room power, storage and reliability requirements. Defer line-input interfaces and venue adapters, dual-feed acquisition/synchronization/reconciliation, automated schedule scraping, heat inference, speech models, advanced bumper classification, cloud activation, playlist authentication, exact retention periods, and further database migration until evidence justifies them. Phase 2 correction/report software is complete; longer room-recording acceptance remains pending alongside the verified local Phase 3 workflow.

@@ -12,7 +12,8 @@ from .recognition import RecognitionStopped
 from .run_output import RunOutputError
 from .storage import StorageError
 from .windows import WindowStreamError
-from . import cli_inspection, cli_processing, cli_recovery, cli_phase2
+from . import cli_inspection, cli_processing, cli_recovery, cli_phase2, cli_views
+from .views import ViewError
 from .cli_parser import build_parser
 from .cli_output import _diagnostic_hint
 
@@ -24,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command in cli_views.COMMANDS:
+            return cli_views.run(args)
         if args.command in cli_phase2.COMMANDS:
             return cli_phase2.run(args)
         if args.command in cli_recovery.COMMANDS:
@@ -31,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in cli_processing.COMMANDS:
             return cli_processing.run(args, parser, parsers)
         return cli_inspection.run(args)
-    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError, ReprocessingError, ComparisonError) as exc:
+    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError, ReprocessingError, ComparisonError, ViewError) as exc:
         logger.error("%s", exc, exc_info=args.verbose)
         return 1
     except KeyboardInterrupt:

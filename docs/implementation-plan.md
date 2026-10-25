@@ -1,193 +1,106 @@
 # Project implementation plan
 
-This is a planning baseline for incremental development. Phase 1 is implemented: fixture/AudD recognition, replay, identity/grouping, SQLite evidence, scheduled context, inspection/export, upload planning, and independent evaluation. A bounded private trial and human-reviewed label correction have demonstrated the core flow; acceptance limitations and unverified bumpers remain open. Phase 2 steps 1/2, 3a, all of 3b and 3c implement safe diagnostics, offline reprocessing, bounded selected-error and complete saved-evidence recovery, explicit lineage/frozen catalogs, and comparison. Remaining chunks and later phases describe intended outcomes.
+This is the active six-phase roadmap. Use [status](status.md) for current capabilities, the latest full verification and pending operational gates; use the [operator walkthrough](operator-guide.md) for commands. Detailed completed plans and measurements remain unchanged in the [historical index](index.md#historical-plans-and-verification).
 
 ## End-to-end roadmap
 
-| Phase | Status | Outcome |
+| Phase | Current position | Outcome |
 | --- | --- | --- |
-| 1. Short prerecorded proof of concept | Implemented; bounded private baseline evaluated | Recognize a short recording, group occurrences, attach expected schedule context, and retain inspectable evidence in SQLite |
-| 2. Reliable local processing and correction | Software implemented and verified within supported scope; representative longer trial pending | Diagnostics, reprocessing/recovery, scoped identity/schedule revisions, WAV preparation, local history and offline acceptance while preserving originals |
-| 3. Attendee and operational views | Planned | Mobile-friendly metadata views, optional Sheets output, then hosting and QR access |
-| 4. Playlist destinations | Planned | Optional reviewed Spotify/Apple Music matching and backend-managed playlist updates |
-| 5. Richer event inference | Planned | Measured speech/music-boundary, heat, and bumper inference with explicit uncertainty |
-| 6. Independent live capture and event trial | Planned; one room microphone is the baseline | Retained lossless room recordings, resilient analysis, and measured deployment requirements without requiring a DJ-booth connection |
+| 1. Short file-based proof of concept | Software implemented; bounded private baseline trial complete | Recognition and provisional song/context history with preserved evidence |
+| 2. Reliable local processing and correction | Software implemented; representative longer acceptance pending | Diagnostics, reconstruction/recovery, scoped review, exact PCM preparation and local reports |
+| 3. Attendee and operational views | Software implemented; real output activation gated | Safe local/mobile views, explicit metadata publication and optional Sheets mirror |
+| 4. Optional playlist destinations | Planned | Backend-owned Spotify/Apple Music matching and duplicate-safe playlist updates |
+| 5. Richer event inference | Planned | Measured audio/MC evidence for boundaries, heat reconstruction and classification |
+| 6. Independent live capture and event trial | Planned | One retained room-microphone source with resilient recording and measured event operation |
 
-### Current capture direction
-
-Use a single room-microphone recording as the baseline. Direct DJ-booth feed access can be logistically difficult, so line-input integration and dual-feed features are deferred optional enhancements. Successful initial event trials must not require booth access or a microphone-versus-line-feed comparison. Hardware acquisition and room sample recording may proceed while software continues to process saved files; independent live capture remains Phase 6.
-
-Keep the existing source-independent chunk/timestamp contract. Defer simultaneous feed management, cross-feed offset/drift correction, source selection/switching, result reconciliation and multi-feed storage/reporting until access is practical and measurements justify the work. Continue Phase 2 identity corrections, schedule revisions, report consolidation and longer acceptance in that order. Specific completed implementation plans and their verification records remain historical documents; this active roadmap governs the revised future scope.
-
-Steps 3b and 3c are implemented: terminal full-grid/prefix recovery, explicit incomplete-collection selections, immutable running-history checkpoints and bounded missing-suffix recognition with separate offline continuation. Consolidation releases A/B are implemented before reviewed identity corrections. Completed analyses retain explicit ancestry, source coverage and termination provenance. The separately enabled live three-request recovery trial remains pending; it does not block offline development.
-
-The implemented [step 3a design](phase-2-step-3a-plan.md) records the offline plan, verified window preparation, durable attempts, selected-outcome analysis, stable identities, compatibility, and acceptance checks. The [recovery guide](recovery.md) documents commands and the 868-test verification, including 88 new recovery cases.
-
-The implemented [step 3b1 design](phase-2-step-3b-plan.md) and [usage guide](saved-recovery.md) document frozen plans, recovery lineage, explicit configured-window finalization, schema-5 migration and 971-test verification (103 new cases). Terminal saved prefixes, explicit collection selections and running-history checkpoints are implemented in 3b2a/3b2b/3b2c; new missing-window uploads remain 3c.
-
-The implemented [3b2a design](phase-2-step-3b2a-plan.md) and [prefix guide](prefix-recovery.md) document explicit prefix planning, `completed_partial`, censored final occurrences, coverage-aware reports and schema-6 compatibility. Installed acceptance rebuilds ten observations from a 29-window source offline, preserving nineteen unobserved input windows and the unsuccessful original. Source/token absence, stable repeated IDs and private compatibility are checked without real provider requests.
+Hardware acquisition and external room-sample recording may proceed now. Direct DJ-booth feeds and dual-feed acquisition, synchronization, switching and reconciliation are optional deferred work, not acceptance requirements for the single-room baseline.
 
 ## Initial Python stack
 
-Use one local Python application and introduce dependencies when a phase requires them. `pyproject.toml` declares Python 3.11 or newer, matching the available local interpreter, with setuptools packaging, `tzdata` for portable named-timezone support, HTTPX for provider HTTP, and pytest as a development extra. Dependency compatibility ranges are declared; no lockfile has been introduced.
-
-| Need | Proposed starting choice | Reason |
-| --- | --- | --- |
-| Domain contracts | Typed dataclasses and a small audio-source interface | Makes timestamps, evidence, and source substitution explicit |
-| Sample input | Standard-library [`wave`](https://docs.python.org/3/library/wave.html) with an uncompressed PCM WAV sample | Keeps the first replay path small; compressed audio/video and FLAC conversion come later |
-| Local persistence | Standard-library [`sqlite3`](https://docs.python.org/3/library/sqlite3.html) | Provides a local disk database without running a server |
-| CLI and configuration | `argparse`, JSON schedules, environment variables for secrets | Avoids a web service or configuration framework for the first slice |
-| Diagnostics | Standard-library `logging` with source/run identifiers | Supports tracing a result back through the pipeline |
-| Verification | [`pytest`](https://docs.pytest.org/en/stable/) and synthetic provider fixtures | Supports repeatable local checks without credentials or network calls |
-| Recognition | AudD standard endpoint behind a narrow adapter; HTTPX synchronous client | Keeps provider identifiers outside core domain logic; mock transport tests remain offline |
-
-The linked official documentation describes the underlying tools. Step 8 selected exact PCM WAV multipart uploads and HTTPX after reviewing the narrow provider contract. Defer an ORM, web framework, asynchronous workers, and infrastructure tooling until needed.
+The implemented stack uses Python 3.11+, standard-library PCM WAV reading and SQLite, HTTPX behind the AudD adapter, and pytest with deterministic fixtures. Optional FastAPI/Uvicorn and packaged HTML/CSS/JavaScript provide local views; Playwright/Chromium supplies browser acceptance. See [setup](../README.md#setup), [developer verification](developer-guide.md#verification) and `pyproject.toml` for current dependency constraints. Cloud databases, brokers and a separate frontend build system are not prerequisites.
 
 ## Phase 1: short file replay into a local database
 
-**Goal:** Process a 3–5 minute single-room PCM WAV sample in timestamp order, producing inspectable song occurrences with scheduled context and source provenance.
+All eight software steps are implemented:
 
-Inputs are a private sample containing at least two known songs, a supplied event start timestamp and timezone, a small JSON schedule with event/room/session/DJ information, and either fixture recognition responses or an explicitly enabled provider adapter. Fixtures validate the pipeline; a separate provider evaluation measures actual recognition.
+1. Package/CLI, repository guidance and synthetic fixtures.
+2. Recording manifests, structured schedules and timezone/frame rules.
+3. Bounded accelerated/paced file replay behind the shared source contract.
+4. Exact recognition-window assembly and strict fixture outcomes.
+5. Conservative Track resolution and provisional SongPlay grouping, including repeated occurrences and unknown gaps.
+6. Incremental SQLite persistence, immutable saved identities, raw-before-derived commits and read-only inspection/export.
+7. Expected schedule context with independent session/DJ ambiguity and estimated boundary rules.
+8. Bounded AudD execution, offline upload planning and independent hash-bound evaluation.
 
-Implement the narrow path in these reviewable chunks:
-
-1. **Project setup — complete.** Installable package, CLI entry point, logging, and pytest.
-2. **Inputs and contracts — complete.** Manifest/schedule validation, WAV inspection, domain models, synthetic fixtures, and source timestamp calculations. A private approximately five-minute competition sample with two known songs has been prepared and evaluated.
-3. **File reading and replay — complete.** `FileAudioSource` streams bounded PCM chunks, including the final partial chunk. Accelerated and paced modes preserve identical audio and media times; paced chunks become available at their end offsets using monotonic deadlines. See [file replay](replay.md).
-4. **Recognition windows and fixtures — complete.** Window duration/hop are independent of delivery size, with full-window-only EOF behavior, stream validation, strict fixture responses, provider-neutral orchestration, and streaming JSONL evidence. See the [recognition guide](recognition.md) and [step 4 design/reassessment](phase-1-step-4-plan.md). Step 8 adds the separately enabled real-provider path.
-5. **Track resolution and aggregation — complete.** Conservative internal `Track` resolution preserves unresolved conflicts. Provisional `SongPlay` grouping declares unknown-gap and estimated-boundary rules, with immutable evidence snapshots, closure reasons, and uncertainty flags. Version-1 recognition output is retained; aggregation emits version 2. See the [aggregation guide](aggregation.md) and [step 5 design/reassessment](phase-1-step-5-plan.md).
-6. **SQLite persistence — complete.** `process-fixture` stores sources/runs, configuration, optional immutable schedule snapshots, raw results, resolution snapshots, persistent tracks, provisional plays, and evidence relationships. Incremental commits preserve partial evidence and atomically bind catalog changes to resolution decisions. Read-only run inspection and legacy version-2 export preserve historical snapshots; existing JSONL commands remain compatible. See the [persistence guide](persistence.md) and [step 6 design](phase-1-step-6-plan.md). Step 8 reuses the coordinator for AudD processing.
-7. **Schedule attribution — complete.** Each new database play has scheduled session/DJ segments from its saved snapshot, independent unique/uncovered/ambiguous/missing-schedule decisions, candidate IDs, provenance, unknown numeric confidence, and an explicit frame-boundary policy. Context changes preserve one occurrence. Play/context writes are atomic; schema-1 migration preserves history and new exports use version 3. See the [attribution guide](attribution.md) and [step 7 design](phase-1-step-7-plan.md).
-8. **Real-provider integration and evaluation — implemented; private baseline trial complete.** A bounded AudD adapter, `plan-audd`, explicit `process-audd`, fatal-after-evidence handling, independent labels, and read-only `evaluate-run` reports are implemented. The private trial saved 29 outcomes; after a documented listener correction of one remix identity, its 13 eligible windows contain 11 correct matches and 2 transport errors. Sixteen windows remain excluded. Original evidence and both label/report versions are preserved. Bumper review and final acceptance limitations remain open; this is not full-event reliability evidence. See the [provider guide](provider-recognition.md), [evaluation guide](evaluation.md), and [step 8 plan](phase-1-step-8-plan.md).
-
-No web UI, Sheets, playlists, hardware, automatic schedule extraction, speech analysis, or heat inference is required for this phase. Retain the input audio for later reprocessing. Each run should be identifiable so rerunning a sample does not create indistinguishable duplicate results.
-
-The current replay pipeline is synchronous. Independent live capture, background workers/queues, resumability, and retry scheduling remain later work; paced replay alone does not establish live capture resilience. The [step 4 reassessment](phase-1-step-4-plan.md) records earlier decisions, the [step 6 plan](phase-1-step-6-plan.md) defines persistence, the [step 7 plan](phase-1-step-7-plan.md) defines the implemented attribution/compatibility work, and the [step 8 reassessment](phase-1-step-8-plan.md) defines provider integration and measured evaluation.
-
-### Acceptance criteria
-
-- One documented CLI command processes the sample into a fresh local database and prints an ordered play summary. Fixture mode works without network access or secrets.
-- Paced replay consumes the sample at approximately real-time speed; accelerated replay yields the same media timestamps and derived fixture results.
-- Chunk start times and offsets reproduce the supplied media timeline to within one audio sample period. Every recognition window and play links to retrievable source evidence.
-- A deterministic sequence `A, A, A, B, B` yields two plays. A separate `A, B, A` sequence yields three, with one shared canonical Track for A.
-- A no-match window and a simulated provider error are retained as evidence without a fabricated track, and subsequent windows are processed.
-- Fixture detection windows produce the declared approximate play intervals. The report labels boundaries as estimates and exposes the evidence used; it does not claim sample-accurate song boundaries.
-- Schedule fixtures cover session changes, an uncovered interval, and midnight. Matching uses aware times and documented half-open intervals `[start, end)`; gaps remain unknown and overlaps remain explicitly ambiguous.
-- Schedule-derived social/competition context and DJ attribution record their source and a documented confidence policy. Missing provider confidence stays unknown.
-- Closing and reopening SQLite preserves tracks, plays, raw results, context, and source references. A second run has a distinct run identity and leaves the first run's evidence intact.
-- The original sample remains available and unmodified. No audio or credentials are included in committed fixtures or report output.
-- Targeted automated tests verify the above deterministic behavior. A separately enabled real-provider evaluation reports sample coverage, matches, no-matches, errors, and observed timing quality; provider accuracy is measured rather than guaranteed by fixture tests.
+The retained short livestream trial demonstrates the core path for two labeled songs; it is not representative room-microphone or full-event accuracy evidence. Earlier designs and verification remain in the [Phase 1 records](index.md#historical-plans-and-verification). Keep source audio and original results for subsequent analysis.
 
 ## Phase 2: robust local replay and post-event correction
 
-Make local analysis reliable, recoverable and reviewable before adding attendee interfaces. Preserve source audio, raw observations, original conclusions and independent labels through every recovery or correction. Prioritize retained room-microphone samples for the remaining acoustic trials, with no new capture hardware integration required to perform file-based testing. Independent live capture remains Phase 6.
+| Step | Implemented behavior / remaining acceptance |
+| --- | --- |
+| 1. Diagnostics | Controlled failure facts and offline saved-run diagnosis without new uploads |
+| 2. Reprocessing | Frozen saved inputs, separate child analyses and immediate-parent comparison |
+| 3. Selective recovery | Selected errors (3a), complete saved grids/prefixes and collection choices/checkpoints (3b), bounded missing suffixes (3c) |
+| 4. Reviewed corrections | Explicit per-observation identity review and revised expected schedules; preserve originals and unselected decisions |
+| 5. Longer recordings/preparation | Exact PCM trims/channel extraction, hashes and frame/clock mapping; realistic longer recording/resource acceptance pending |
+| 6. Reports/history | Correction-aware comparison, diagnosis, export/evaluation and bounded analysis-family navigation |
+| 7. Acceptance | Installed synthetic workflows verified; representative longer room trials remain open |
 
-The current implementation uses SQLite schema 10. Reviewed revisions add JSONL 11, comparison 8 and diagnostic/evaluation 9; prior methods retain their historical formats. Saved-evidence, collection and checkpoint recovery retain their earlier formats; missing-suffix analyses/descendants add JSONL 10, comparison 7 and diagnostic/evaluation 8. The final step-3c suite passed **1,413 tests** (131 beyond the 1,282 baseline) in 485.45 seconds. Installed acceptance covers explicit saved selections, concurrent-writer checkpoints and bounded missing-suffix collection/reconstruction, including interruption and repeated offline analysis. Private compatibility copies preserve historical report bytes and original file hashes. These establish software behavior; broader acoustic and event-length acceptance remains open.
+The [recovery chooser](operator-guide.md#choose-a-recovery-operation) explains which operation fits each saved state. Collection completion, analysis success, selected coverage and historical EOF remain separate. Unknown receipt/billing, explicit choices, censored prefix endings and checkpoint workspace ownership must survive descendants. No automatic resume, arbitrary interior-hole reconstruction, implicit cross-collection union or forced running-status repair is added.
 
-| Step | Status | Implemented outcome or remaining deliverable |
-| --- | --- | --- |
-| 1. Diagnostics and troubleshooting | Complete | Controlled provider/transport facts, reporting after raw commits and read-only diagnosis without recording, token or network |
-| 2. Offline reprocessing | Complete for supported completed parents | Separate analyses, frozen starting catalogs, exact inherited timeline/schedule, an explicit grouping-gap override, linked unchanged outcomes and immediate-parent comparison |
-| 3. Selective recovery | 3a, 3b and bounded 3c implemented | Selected-error retries, saved-grid/prefix reconstruction, incomplete-collection choices, immutable checkpoints and bounded missing-suffix recognition with partial/full offline continuation |
-| 4. Reviewed identity and schedule corrections | Implemented and verified | Scoped frozen review plans, exact inherited resolutions outside selected matches, revised expected schedule snapshots, complete/partial/checkpoint eligibility and separate analysis lineage |
-| 5. Longer recordings and format preparation | Bounded WAV preparation implemented; realistic longer recording pending | Exact frame trims/channel extraction, hashes/clock mapping, budgets and synthetic resource probes; compressed conversion/resampling remain unsupported |
-| 6. Comparison and review reports | Implemented within local CLI scope | Correction-aware comparison/diagnosis/export/evaluation, separate reviewed identity scoring and bounded connected-family run-history navigation |
-| 7. Targeted labeled and longer trials | Offline acceptance implemented; real trial pending | Installed synthetic workflow, partial/checkpoint/missing revisions and preservation checks; longer room-audio and paid recognition trials follow when supplied/authorized |
-
-Implementation details and historical verification are in the [diagnostics](diagnostics.md), [reprocessing](reprocessing.md), [selected-error recovery](recovery.md), [complete-grid recovery](saved-recovery.md), [prefix recovery](prefix-recovery.md), [collection analysis](collection-analysis.md), [checkpoints](checkpoints.md) and [missing-window recovery](missing-recovery.md) guides. No web UI, new recognition provider or automatic resume scheduler is needed to finish the next slice.
-
-### Step 3: recovery milestones and delivery order
-
-The [implemented remaining-3b design](phase-2-step-3b-remaining-plan.md) records eight implementation chunks, separate release gates, commands, compatibility and acceptance. The [collection](collection-analysis.md) and [checkpoint](checkpoints.md) guides document available behavior and limits.
-
-| Milestone | Status | Scope and acceptance |
-| --- | --- | --- |
-| 3a. Selected-error recovery | Implemented; bounded live trial pending | Explicit retries from completed validated parents, verified audio, ceilings, durable attempts and completed-collection offline analysis |
-| 3b1. Complete saved-evidence recovery | Implemented | Reconstruct every configured outcome from terminal failed/interrupted analyses; preserve originals and unknown historical EOF |
-| 3b2a. Saved-prefix recovery | Implemented | Reconstruct a proper saved prefix with completed_partial, explicit coverage and censored final occurrence |
-| 3b2b. Incomplete-collection evidence | Implemented | Freeze explicit retry/parent choices from one terminal nonfatal collection; full selected grids can complete while the collection remains unsuccessful |
-| 3b2c. Unconfirmed-history checkpoints | Implemented | Capture committed running analysis/collection evidence consistently; reconstruct full grids, prefixes or explicit collection selections in an isolated owned working database |
-| 3c. Missing-window recognition | Implemented and verified | Independent source/frame slots, explicit suffix/ceiling, fresh verified audio, durable attempts and frozen partial/full continuation with added-observation reports |
-
-Installed 3b2b acceptance selected one saved retry plus 28 parent outcomes from a three-slot interrupted collection, retaining two errors, all attempts and stable repeated/descendant Track IDs. Installed 3b2c acceptance captured actual synthetic persistence writers after ten of 29 outcomes and after all outcomes; each original writer then completed normally. A running collection likewise completed after capture. Subsequent installed analysis/repetition used only captured evidence, with original database, recording and token unavailable. Prefix timing excluded its censored predicted end without editing independent labels. Full-grid children supported ordinary descendants. All original private artifacts and published checkpoint bytes were preserved; no real provider requests occurred.
-
-Checkpoint capture preserves uncertainty rather than declaring process death. Its exclusive bundle is usable only after the closed image and manifest are published and validated. Analysis copies that immutable image into a separately owned database, migrating only the working copy and preserving captured running statuses. Later live changes do not enter a frozen plan. Explicit fatal stops, arbitrary holes, running parent/collection pairs and recapture of checkpoint-owned databases remain outside this first contract; existing checkpoints can be reanalyzed without recapture. Ordinary terminal/completed-parent commands retain their restrictions.
-
-**Step 3c implements independent source/frame ownership.** Dedicated slots and selections accept absent parent-result references without weakening old retry tables. The [implemented design](phase-2-step-3c-plan.md) and [user guide](missing-recovery.md) document the new commands, schema-9 migration, versions 10/7/8 for export/comparison/diagnostic-evaluation, eligibility and bounded first-release scope.
-
-Installed acceptance combines ten saved observations with nineteen acquired outcomes on the original 29-window timeline. A smaller bounded continuation or terminal nonfatal interrupted collection can produce a longer completed_partial child; full selected grids become completed. Repeating frozen analysis plans makes zero requests and preserves compatible identities. Original prefix conclusions stay unchanged; finalization uses the new selected endpoint rather than the old cutoff, and historical EOF/receipt/billing remain unknown. Current reports distinguish added windows, reused evidence, actual selected origins, label opportunities and uncertain boundaries.
-
-Planning and collection validate source/hash/grid, schedule, frozen parent evidence, explicit ceiling, overlapping attempt history and checkpoint ownership. Saved outcomes must be reconstructed before planning further uploads; no automatic collection resume occurs. Running/fatal new collections remain inspectable but ineligible for offline continuation, and their checkpoint capture is not part of this release. Arbitrary interior holes and multi-collection/cross-checkpoint unions remain excluded.
-
-Checkpoint-derived continuation uses its matching owned working database. Later live outcomes do not enter an existing frozen plan. Separate captures can contain the same run UUID with different evidence; immutable bundles and captured base rows stay unchanged.
-
-Every new recovery mode includes comparison, diagnosis, export and independent-label evaluation in its own milestone. Keep collection completion, analysis execution, source-window coverage and historical EOF/receipt/billing separate. Preserve earlier methods, statuses and historical formats.
-
-### Reassessment of the remaining steps
-
-**Consolidation before step 4:** releases A/B of the [performance and maintainability plan](performance-maintainability-plan.md) are implemented. Release A provides reproducible benchmarks, exact historical-output verification, isolated migration fixtures, transaction-scoped evidence, guarded progress and source hashing outside planner read locks. Release B shares collection dispatch and method/report routing, indexes interval evaluation, journals catalog mutations and splits the CLI into focused modules. Existing domain validators, read-cache boundaries, fresh writable validation, schema-9 compatibility and historical bytes are preserved. The [benchmark guide](benchmarks.md) records the separate read, evaluation and committed-write measurements, including memory tradeoffs. [Release C](performance-maintainability-plan.md#release-c-verification-record) has now completed storage/checkpoint-I/O measurement (C1), the dependency inventory and keep-current decision (C2), and compatibility/operating guidance (C4). C3 was skipped as planned. Whole-database checkpoints and full frozen seeds remain supported; 120 jobs / 600 isolated passes and 1,549 tests passed. The [operating guidance](release-c-operating-limits.md) applies to measured developer workloads. Declare and measure the intended larger-trial disk/time/memory envelope before that trial; full-event throughput is not established.
-
-The [detailed Release C execution plan](release-c-plan.md) gives an implementing agent the storage benchmark tasks, evidence inventory, conditional format branch and release checks. Its completed ledger links the fixtures, measurements, keep-current decision and final checks; no format redesign was selected.
-
-**Step 4 is implemented through [reviewed revisions](revisions.md).** `plan-revision` freezes versioned identity or schedule review inputs; `analyze-revision-plan` creates a separate successful analysis. Identity assignments/unresolved decisions target exact saved matches, preserve original/remix distinctions and copy all unselected resolutions exactly. Schedule revisions preserve every identity decision and create an immutable revised expected schedule with predecessor and reviewer/rationale. Frozen catalogs and independent evaluation aliases remain separate from review rules. No global/future-recording correction rule is introduced.
-
-The dedicated validator accepts validated `completed` and `completed_partial` analyses, including supported checkpoint/missing descendants in their matching owned workspace. It preserves the selected observations, source timeline, coverage, finalization and origin provenance; partial endings remain censored. Reviewed descendants use another revision plan. Legacy reprocessing/recovery/missing planners refuse review-bearing parents when they cannot propagate those decisions safely; acquire additional observations on an eligible unrevised branch, then explicitly review the resulting analysis. Schedule revisions require an existing attribution policy and refuse a no-op document at the predecessor's exact input path. Revised context remains `schedule_only` with unknown confidence. Raw recognition metrics stay unchanged; reviewed identity/grouping/timing is evaluated separately.
-
-**Step 5: expand the resource checkpoints already completed.** Prefix profiling measured 10/100/300 synthetic no-match observations through zero/one/two failed-prefix ancestors. At 300 observations, execution measured 3.42-7.17 seconds and 1.69-3.48 MB of peak traced Python allocations. A billion-window configured grid with only ten saved observations still used one compact missing range. The [verification record](phase-2-step-3b2a-plan.md#implemented-verification-record) records the limits: measurements ran alongside regression checks, exclude native/process memory and do not exercise matched-track/catalog work or establish full-event throughput.
-
-The 3b2b/3b2c resource checkpoints now include matched/conflicting identities, catalogs starting at up to 200 tracks, repeated ancestry/report validation, process memory, manifest/export sizes and whole-database snapshot/workspace storage. A 150-of-300 checkpoint measured 0.11-0.36 seconds capture and 4.04-10.87 seconds reconstruction across zero/one pure ancestor while tracing allocations alongside regression checks; snapshot plus workspace used about twice the snapshot size. These bounded workloads are not full-event throughput evidence. Checkpoints currently copy the whole database, including unrelated histories; measure total retained database/bundle/workspace storage rather than estimating it from the chosen run alone. Next measure longer source hashing/preparation, selected-audio temporary storage, larger ancestry/catalogs and operational resource limits. Profile alongside the remaining recovery/correction slices and optimize measured bottlenecks before large paid trials; introduce compaction or further caching only if those measurements justify it. The implemented [PCM preparation workflow](audio-preparation.md) provides exact trims/channel extraction with source/output hashes, distinct source identity, recording-clock anchors and rational frame mappings. It preserves sample rate/width. Compressed audio/video decoding and resampling require a separate explicit decoded-clock contract and remain unsupported; no implicit conversion is claimed. Preparation and planning require no recognition upload.
-
-The step-3c checkpoint additionally measures 29/100/300/1,000 configured windows, prefixes of 10/50/150/500, catalogs of 5/50/200/500 tracks, matched/conflicting identities and zero/one extra failed-prefix ancestor. Upload counts are bounded at 19/50/25/25 mocked requests. For the 1,000-window case, reconstructing the 525 selected outcomes measured 10.82-16.69 seconds with 5.81-7.51 MiB peak traced allocations while the regression suite ran; process working set was 45.04-48.91 MiB. These are short synthetic windows and mocked responses, not service latency or full-event throughput. The [verification record](phase-2-step-3c-plan.md#verification-record) links preparation, storage and report measurements.
-
-The next operational envelope should use one room-microphone source, including source/prepared-audio retention, reports, checkpoints and working copies. Simultaneous two-feed storage and processing are deferred. Record placement, format, recording-time anchors and observed interference alongside resource measurements. Keep original audio and frame/time mappings for every prepared variant; introduce denoising or other preprocessing only to test a measured problem, rather than making it a prerequisite.
-
-**Step 6 is implemented within the local report scope.** Immediate-parent comparisons retain existing recovery/coverage behavior and now include scoped identity/schedule revisions. Revision comparison separates schedule snapshot/provenance audit changes from expected-context changes, reports selected-prefix equivalence separately from full-source coverage, and retains immutable origin/checkpoint facts. Evaluation keeps raw provider scoring unchanged and adds separate reviewed identity/grouping/timing metrics. `run-history` provides bounded read-only navigation of a connected original/derived family and retry/missing collections, including collections with no analyses. It reports recorded statuses, counts, snapshot identities and workspace context without selecting a preferred analysis or claiming full payload verification. Sibling comparison, a web review interface and cross-feed arbitration remain outside this contract.
-
-**Step 7: retain targeted acceptance and finish with a longer trial.** Installed synthetic recovery, concurrent-writer checkpoints, original database/audio/token absence, repeated identities, migration rollback and preservation of private artifacts are verified. The separately enabled three-request live recovery trial remains useful when actual provider outcomes answer a specific question; it is not a prerequisite for offline work. Historical transport subtypes remain unknown. Preserve the original two-song baseline, listener-corrected remix labels, unverified bumpers and uncertain fade boundaries. That livestream excerpt does not establish room-microphone accuracy. Follow the [room-recording acceptance guidance](evaluation.md#room-recording-acceptance): include representative crowd noise, announcements, applause, placement and room acoustics, with independently labeled songs and uncertain spans. Do not change grouping/timing rules without reviewed evidence. A longer single-room trial should include repeated songs, schedule/recording boundaries, controlled interruptions, selected recovery and versioned corrections, with documented accuracy, timing and resource limits. It requires no direct feed; record actual activity transitions separately when assessing schedule attribution rather than treating published times as ground truth.
-
-Identity corrections, schedule revisions and local report consolidation are now implemented. The remaining operational milestone is **a longer representative room-recording acceptance trial**, with declared budgets and independent labels/context observations. Release C has retained the current format within measured developer limits; revisit its decision with declared budgets and measurements before the larger trial. Do not reopen 3b to support arbitrary holes, explicit fatal stops or additional checkpoint combinations without a concrete need; these are documented exclusions, not unfinished release gates. Bounded PCM WAV preparation and resource probes are available; additional codecs/resampling need their own supported contract rather than implicit conversion. Phase 2 remains local; attendee/public views, playlists, richer event inference and independent live-capture integration stay in later phases. Hardware acquisition and external room sample recording may proceed now.
-
-The [remaining-software execution ledger](phase-2-completion-plan.md), [preparation guide](audio-preparation.md), [history guide](history.md) and [trial-readiness handoff](phase-2-trial-readiness.md) describe implemented commands, bounded support and pending acceptance. The historical reassessment/resource measurements above remain evidence from their original slices, not claims that the forthcoming room trial has passed.
+Consolidation releases A/B/C are complete. Shared dispatch/read evidence, indexed evaluation, write guards and focused CLI modules preserve legacy behavior. Release C measured storage/checkpoint costs and [retained the current format](decisions/release-c-storage.md); its conditional redesign was not selected. Keep whole-database checkpoints and full frozen seeds. Apply [operating guidance](release-c-operating-limits.md) and measure a declared larger workload before relying on it.
 
 ### Phase 2 completion criteria
 
-- Process a longer retained room-microphone recording with documented placement/interference, wall time, process memory, storage and bounded request costs; preserve hashes, recording-time anchors and frame/time mappings through any preparation. This file-based trial requires no booth connection or dual-feed system.
-- Demonstrate complete-grid and saved-prefix reconstruction, explicit reuse from incomplete collections, a consistent checkpoint for unconfirmed histories and bounded selected error/missing-window recognition. Preserve every attempt and the original statuses/evidence.
-- Keep analysis success, source coverage, collection completion and historical EOF/receipt/billing distinct. Partial finalization must remain censored, and missing observations must not become fabricated no-matches or timing errors.
-- Apply versioned reviewed identity rules and a revised schedule snapshot against explicit saved inputs. Define eligible partial analyses, preserve remix distinctions and retain schedule-only uncertainty.
-- Reproduce and compare revised conclusions with appropriate outcome, identity, grouping, timing, context and coverage denominators. Keep independent labels unchanged and do not count reused observations as new acoustic trials.
-- Document broader labeled room-audio results and remaining limits, distinguishing recognition accuracy from software correctness and schedule-only context from independently observed activity. Verify failures in optional reports/outputs leave core evidence intact, and retain private source audio and historical exports/reports.
+The supported software gates are recorded in the [completion ledger](phase-2-completion-plan.md). Remaining operational acceptance requires:
+
+- A longer retained room-microphone recording, placement/interference notes, exact source identity/hash and recording-clock anchors.
+- Independent song/version/boundary labels and independently observed session/DJ changes; scheduled context alone is not ground truth.
+- Declared request cost, retained audio/preparation/database/checkpoint/workspace storage, free headroom, latency and process-memory requirements with matching measurements.
+- Representative recognition, occurrence/timing and context results, including noise, announcements, applause, unknowns and uncertain fades.
+- Evidence that supported recovery/review preserves original outcomes, statuses, private artifacts and historical reports.
+
+Follow [trial readiness](phase-2-trial-readiness.md) and [evaluation acceptance](evaluation.md#room-recording-acceptance). Paid trials require an explicit recording/window budget; synthetic tests and repeated saved observations do not establish new acoustic accuracy.
 
 ## Phase 3: live-style read views
 
-Add a local mobile-friendly now-playing/recently-played web view backed by database metadata. Add optional Google Sheets append/update output with retry isolation. Then prepare public hosting and QR access, ensuring private recordings are never served. Compare outputs with the stored database on a prerecorded replay before public deployment.
+All eight software steps are implemented within the [completed execution scope](phase-3-plan.md):
+
+| Step | Delivered behavior |
+| --- | --- |
+| 1. View contract | Explicit selection, safe metadata and fixture/privacy boundaries |
+| 2. Projection | Bounded read-only pages using saved historical identities |
+| 3. HTTP service | Optional local service, fixed routes and controlled errors/concurrency |
+| 4. Mobile page | Recent closed occurrences, expected context and uncertainty |
+| 5. Refresh/replay | Distinct latest-recognition hints and source-time overlap/unknown estimates |
+| 6. Selection/publication | Private versioned configuration and exclusive metadata-only publication/withdrawal |
+| 7. Sheets | Fixed RAW range, bounded reconciliation, ownership/readback and separate delivery state |
+| 8. Handoff | Developer resource envelope, installed/browser/package checks and hosting/QR preparation |
+
+The [post-completion fixes](phase-3-review-fixes.md) close malformed Sheets-read and obsolete browser-state gaps. SQLite remains authoritative; network/display state stays outside it. Recent closed plays and successful refreshes do not prove currently playing music or writer liveness. Preview selections cannot publish. Actual Sheets activation and public hosting/QR rollout remain separate gates in [status](status.md#operational-acceptance-still-pending); the [operator runbook](phase-3-deployment.md) describes the available local workflow.
 
 ## Phase 4: optional playlist destinations
 
-Evaluate Spotify and Apple Music catalog access and playlist requirements at implementation time. Add independent matching/export adapters, confidence thresholds, review for ambiguous versions, and duplicate-safe updates. Publish playlist links; keep platform authentication in backend operations and the canonical dataset independent of either service.
+Evaluate Spotify/Apple Music catalog and authentication requirements at implementation time. Add independent matching/export adapters, explicit version matching and ambiguity review, and duplicate-safe playlist updates. Publish licensed-platform links; keep platform authentication in backend operations and the canonical dataset independent of either service. Full music playback and attendee account requirements are outside the initial app scope.
 
 ## Phase 5: richer event inference
 
-Evaluate voice-activity detection, targeted MC transcription, applause/music boundaries, heat reconstruction, and bumper classification against labeled examples from the single-room recording baseline. Report measured quality and confidence. Preserve raw evidence and compare offline revisions with the original live predictions. These remain later inference features; the microphone priority does not introduce speech models or denoising into Phase 2 by default.
+Evaluate voice activity, targeted MC transcription, applause/music boundaries, heat reconstruction and bumper classification against labeled single-room examples. Preserve raw evidence, compare offline conclusions with original live predictions and report measured quality/uncertainty. Add preprocessing only for measured failures, retaining original audio and exact mappings. These are not prerequisites for the current local workflow.
 
 ## Phase 6: live capture and event trial
 
-Add one room-microphone source using the existing chunk contract, timestamped local lossless recording, and recovery from analysis/network failure. Prioritize a standalone recorder/computer, power and local storage; use measured requirements to select dedicated deployment hardware. Hardware acquisition or external sample recording can happen earlier without claiming the application already supports independent live capture.
+Add one room-microphone source through the shared timestamped chunk contract, private local lossless retention and resilience to recognition/network/output failure. Hardware acquisition can precede this implementation. Choose dedicated devices using measured single-room power, storage, memory and latency requirements.
 
-The initial event-trial acceptance should demonstrate:
+Initial event acceptance must demonstrate:
 
-- One room recording without a direct mixer feed or booth-access dependency, with practical placement and any necessary recording coordination established.
-- Recording that continues through recognition, network and optional-output failures; retain completed audio and expose gaps/interruption boundaries after capture, storage or power problems. A second feed is not an assumed fallback.
-- Reproducible recording-clock anchors, timezone, chunk offsets and continuity, including across chunk boundaries and restarts.
-- Measured recognition and occurrence/timing performance on representative room noise, announcements, applause and acoustic conditions, with independent labels and explicit unknowns.
-- A declared and tested duration, power, storage/headroom, latency and memory envelope for the single source, including prepared audio, database and retained checkpoints/workspaces.
+- One room recording without a booth feed or second-feed dependency, with practical placement/recording coordination.
+- Recording continuity through analysis/network/output failures; explicit retained gaps/interruption boundaries after capture/storage/power problems.
+- Reproducible recording clocks, timezone, chunk offsets and continuity across chunk boundaries and restarts.
+- Independent recognition/occurrence/timing evaluation under real crowd noise, speech, applause and room acoustics.
+- A declared and tested duration, power, storage/headroom, latency and memory envelope including retained audio and working artifacts.
 
-Direct line-input support, venue-specific interfaces/adapters, simultaneous feed acquisition, clock alignment/drift compensation, source switching/fallback, recognition reconciliation, combined-source evidence and microphone-versus-line-feed comparisons are deferred optional work. Revisit them only when access is feasible and measurements show a worthwhile benefit. Any eventual mixer feed must remain a passive branch and must never put the system inline with venue audio.
+Any eventual mixer feed must be a passive branch, never inline with the PA. Direct-feed interfaces, multi-feed acquisition/alignment, source fallback, reconciliation and combined-source reporting remain optional enhancements to revisit only when access is practical and measured benefit warrants them.
 
 ## Decisions to postpone
 
-Keep PostgreSQL migration, cloud provider, frontend framework, message broker, device selection, exact chunk duration, retention policy, transcription model, and automatic schedule scraping open. Recognition cadence, aggregation gap thresholds, and confidence policies need sample-based evaluation. Do not design all external outputs or all competition entities before the short file-replay slice demonstrates the core flow.
-
-Dedicated deployment-device selection remains measurement-driven; this does not prevent current hardware purchases or single-room sample recording. Direct-feed and dual-feed features are explicitly deferred and are not acceptance gates for Phases 2 or 6.
-
-Final step-3b regression: **1,282 passed in 344.40 seconds**, recorded in `data/remaining-3b-final-pytest.txt`. Installed collection/checkpoint acceptance, resource records and original-file preservation checks passed with zero real provider requests. Step 3b is complete within the documented eligibility. Step 3c passed **1,413 tests in 485.45 seconds**, plus installed acceptance and the bounded resource checkpoint; its verification record is in the [design verification record](phase-2-step-3c-plan.md#verification-record). The planned performance/maintainability consolidation precedes reviewed identity corrections.
+Keep cloud hosting activation/provider, PostgreSQL migration, frontend framework, queue/broker, dedicated device selection, exact capture chunk duration/retention policy, transcription model and automatic schedule scraping open until the relevant phase or measurements justify a decision. Additional codecs/resampling require their own explicit decoded-clock contract; they are not implicitly supported by PCM preparation.

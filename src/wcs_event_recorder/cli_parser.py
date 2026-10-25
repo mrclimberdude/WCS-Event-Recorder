@@ -231,5 +231,68 @@ def build_parser():
     analyze_revision.add_argument("--plan", type=Path, required=True)
     for command in (preparation, history, revision, analyze_revision):
         command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    for name, description in (("show-view", "inspect bounded safe music metadata"),
+                              ("export-view", "export bounded safe music metadata to a new JSON file")):
+        command = commands.add_parser(name, help=description)
+        command.add_argument("--database", type=Path, required=True)
+        command.add_argument("--run-id", required=True)
+        command.add_argument("--view-id", default="music")
+        command.add_argument("--event-label", required=True)
+        command.add_argument("--room-label", required=True)
+        command.add_argument("--preview", action="store_true", help="allow incomplete evidence as explicitly private preview")
+        command.add_argument("--limit", type=_positive_integer, default=50)
+        command.add_argument("--cursor")
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+        if name == "export-view":
+            command.add_argument("--output", type=Path, required=True)
+    for name, description in (
+        ("configure-view", "save an explicit private music-view selection"),
+        ("serve-view", "serve one local read-only music view"),
+        ("publish-view", "build an exclusive metadata-only snapshot bundle"),
+        ("sheets-dry-run", "render a bounded Sheets snapshot without network access"),
+        ("publish-sheets", "explicitly reconcile a designated managed Sheets range"),
+    ):
+        command = commands.add_parser(name, help=description)
+        if name in {"configure-view", "serve-view"}:
+            required = name == "configure-view"
+            command.add_argument("--database", type=Path, required=required)
+            command.add_argument("--run-id", required=required)
+            command.add_argument("--view-id")
+            command.add_argument("--event-label", required=required)
+            command.add_argument("--room-label", required=required)
+            command.add_argument("--preview", action="store_true", default=None)
+            command.add_argument("--page-limit", type=_positive_integer)
+            command.add_argument("--poll-seconds", type=_positive_integer)
+            command.add_argument("--stale-seconds", type=_positive_integer)
+        if name != "configure-view":
+            command.add_argument("--view-manifest", type=Path, required=name != "serve-view")
+        if name in {"configure-view", "sheets-dry-run"}:
+            command.add_argument("--output", type=Path, required=True)
+        if name == "serve-view":
+            command.add_argument("--host", default="127.0.0.1")
+            command.add_argument("--port", type=_positive_integer, default=8000)
+            command.add_argument("--lan", action="store_true", help="explicitly allow binding beyond loopback")
+            command.add_argument("--max-concurrency", type=_positive_integer, default=4)
+        if name == "publish-view":
+            command.add_argument("--output-directory", type=Path, required=True)
+            command.add_argument("--expires-at", required=True, help="aware ISO timestamp; at most seven days ahead")
+        if name in {"sheets-dry-run", "publish-sheets"}:
+            command.add_argument("--max-rows", type=_positive_integer, default=201)
+        if name == "publish-sheets":
+            command.add_argument("--spreadsheet-id", required=True)
+            command.add_argument("--tab-name", required=True)
+            command.add_argument("--state", type=Path, required=True)
+            command.add_argument("--claim-empty-range", action="store_true")
+            command.add_argument("--max-requests", type=_positive_integer, default=6)
+            command.add_argument("--max-attempts", type=_positive_integer, default=3)
+            command.add_argument("--deadline-seconds", type=_positive_integer, default=60)
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
+    verify = commands.add_parser("verify-publication", help="verify a metadata publication bundle offline")
+    verify.add_argument("--directory", type=Path, required=True)
+    withdraw = commands.add_parser("withdraw-view", help="build a new withdrawn publication without changing the original")
+    withdraw.add_argument("--source-directory", type=Path, required=True)
+    withdraw.add_argument("--output-directory", type=Path, required=True)
+    for command in (verify, withdraw):
+        command.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     return parser, commands.choices
 

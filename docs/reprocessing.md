@@ -75,13 +75,13 @@ Derived evaluation uses schema 2 with the unchanged scoring method. It identifie
 
 | Format | Current behavior |
 | --- | --- |
-| Database | Schema 9 for new/writable databases; read-only accepts 1-9 |
+| Database | See [current storage compatibility](persistence.md#database-structure-and-limits); report versions are independent |
 | Original JSONL | Legacy version 2 or attribution-enabled version 3, unchanged |
 | Derived JSONL | Earlier pure-derived 4, selected-error 5, saved-evidence 6, prefix 7, collection 8, checkpoint 9 and missing-suffix 10; descendants retain provenance |
 | Comparison JSON | Pure reuse 1, selected-error 2, saved-evidence 3, prefix 4, collection 5, checkpoint 6 and missing-suffix 7 |
 | Diagnostic/evaluation JSON | Original 1, pure-derived 2, selected-error 3, saved-evidence 4, prefix 5, collection 6, checkpoint 7 and missing-suffix 8 |
 
-Writable opens migrate recognized schema 1-8 databases atomically to 9, preserving historical logical evidence and byte-identical original exports. Migration rebuilds the attribution/context graph to allow the offline stage, adds provenance tables, and checks foreign keys with enforcement enabled. Read-only commands do not migrate. A migrated database file changes even when historical exports stay identical.
+Writable opens migrate recognized schema 1-9 databases atomically to 10, preserving historical logical evidence and byte-identical original exports. Migration rebuilds the attribution/context graph to allow the offline stage, adds provenance tables, and checks foreign keys with enforcement enabled. Read-only commands do not migrate. A migrated database file changes even when historical exports stay identical.
 
 ## Failure behavior and limits
 

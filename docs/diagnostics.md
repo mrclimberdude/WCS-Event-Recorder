@@ -19,7 +19,7 @@ Save a separate JSON report if useful:
 .\.venv\Scripts\wcs-recorder.exe diagnose-run --database data/tracker.sqlite3 --run-id YOUR-RUN-ID --output data/reports/run-diagnostics.json
 ```
 
-The parent directory is created as needed, and existing output files are refused. Original-run reports use schema 1, independent of database schema 1/2/3 and JSONL export versions. Offline-derived reports use schema 2 with parent/original-observation references and explicit reuse/zero-request semantics. A fixed run and interpretation version produce deterministic report content. If report writing fails, the analysis remains unchanged; a failed partial output must not be treated as a complete report.
+The parent directory is created as needed, and existing output files are refused. Original-run reports use schema 1, independent of the database schema and JSONL export versions. Offline-derived reports use schema 2 with parent/original-observation references and explicit reuse/zero-request semantics. A fixed run and interpretation version produce deterministic report content. If report writing fails, the analysis remains unchanged; a failed partial output must not be treated as a complete report.
 
 These commands require neither an AudD token nor the original audio/schedule files. They open SQLite read-only in a consistent snapshot, do not migrate an old database, and make no provider calls. Inspection exits 0 when reading succeeds even if the inspected run failed. Read/output errors exit 1, invalid CLI arguments 2, and interruption 130.
 
@@ -72,13 +72,13 @@ Check presence without displaying its value:
 
 Neither `plan-audd` nor `diagnose-run` validates a token with AudD. An independent recognition request or full rerun is an explicit upload/API action that may consume account requests; it is not required for diagnosis. Keep token values, fragments, clipboard contents, and environment dumps out of shared troubleshooting output.
 
-## Verification and next work
+## Historical verification and current scope
 
 Synthetic tests cover the controlled exception hierarchy, safe provider explanations, malformed/unknown facts, secret redaction, raw-commit observer ordering, fatal/continuing behavior, output failures, read-only snapshots, genuine version-1 compatibility, partial states, deterministic/exclusive reports, and CLI guidance. Historical private runs provide a separate local acceptance check without new uploads.
 
-The full suite passed **694 tests**, including **96 new cases** beyond the 598-test baseline. Separate installed-CLI diagnosis explained the saved authentication failures and showed all three historical generic transport errors in the completed trial. Source/database hashes stayed unchanged and its existing JSONL export was byte-identical. No additional provider requests were made during this implementation or verification.
+The step-1 milestone suite passed **694 tests**, including **96 new cases** beyond the 598-test baseline. Separate installed-CLI diagnosis explained the saved authentication failures and showed all three historical generic transport errors in the completed trial. Source/database hashes stayed unchanged and its existing JSONL export was byte-identical. No additional provider requests were made during this implementation or verification.
 
-The [step 1 design](phase-2-step-1-plan.md) records the original acceptance cases. Phase 2 step 2 now implements [offline reprocessing](reprocessing.md); step 2 verification passed 780 tests. Derived diagnostics retain the same failure-fact interpretation, identify original observations and inherited timeout settings, and report zero new provider requests while keeping historical billing unknown. Old generic transport errors remain generic. Step 3a now implements selected-error retries. General interrupted-run recovery, aliases, corrections, new formats, and changes to song boundaries remain subsequent work.
+The [step 1 design](phase-2-step-1-plan.md) records the original acceptance cases. Phase 2 step 2 now implements [offline reprocessing](reprocessing.md); step 2 verification passed 780 tests. Derived diagnostics retain the same failure-fact interpretation, identify original observations and inherited timeout settings, and report zero new provider requests while keeping historical billing unknown. Old generic transport errors remain generic. Step 3a now implements selected-error retries. Supported interrupted-run recovery and scoped identity/schedule revisions are now implemented. Use the [recovery chooser](operator-guide.md#choose-a-recovery-operation) for eligibility and the [revision guide](revisions.md) for review boundaries; arbitrary grouping/timing changes and global future aliases are not implied. Latest full application verification is recorded in [status](status.md#verification-baseline).
 
 ## Recovery-aware diagnostics
 
@@ -86,7 +86,7 @@ The [step 1 design](phase-2-step-1-plan.md) records the original acceptance case
 
 ## Complete saved-evidence recovery
 
-[Step 3b1](saved-recovery.md) produces diagnostic schema 4 for recovered analyses and descendants. Reports separate copied/expected coverage, unsuccessful original status, unknown historical EOF and zero new requests. Failed child coverage counts only committed copied results; old error subtypes and billing remain unknown. Current full verification passed 971 tests, including 103 new cases.
+[Step 3b1](saved-recovery.md) produces diagnostic schema 4 for recovered analyses and descendants. Reports separate copied/expected coverage, unsuccessful original status, unknown historical EOF and zero new requests. Failed child coverage counts only committed copied results; old error subtypes and billing remain unknown. The historical step-3b1 verification passed 971 tests, including 103 new cases.
 
 ## Missing-window collection and continuation
 
