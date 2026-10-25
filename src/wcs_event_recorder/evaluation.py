@@ -213,7 +213,7 @@ def _ratio(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
-def evaluate_store(store, labels):
+def evaluate_store(store, labels, *, _identity_basis="candidate"):
     from .lineage import prefix_aware
     prefix = prefix_aware(store)
     source, config = store.source, store.run.configuration
@@ -258,6 +258,12 @@ def evaluate_store(store, labels):
                 score = "identity_ambiguous"
             else:
                 score = "correct_match" if interpreted == {item.track_label_id} else "wrong_match"
+        if _identity_basis == "resolution" and item and result.candidate:
+            interpreted = (aliases.get(metadata_key(resolution.track.title, resolution.track.artist), set())
+                           if resolution and resolution.track else set())
+            score = ("identity_unresolved" if not resolution or not resolution.track else
+                     "identity_ambiguous" if len(interpreted) > 1 else
+                     "correct_match" if interpreted == {item.track_label_id} else "wrong_match")
         counts[score] += 1
         if item:
             if score == "identity_ambiguous":
@@ -333,7 +339,7 @@ def evaluate_store(store, labels):
     recognized = set(correct.values())
     recognized_tracks = {songs[key].track_label_id for key in recognized}
     covered = set(occurrence_plays)
-    scored = sum(counts[key] for key in ("correct_match", "wrong_match", "no_match", "error"))
+    scored = sum(counts[key] for key in ("correct_match", "wrong_match", "no_match", "error", "identity_unresolved"))
     report = {
         "schema_version": 1, "method": "independent_window_evaluation_v1", "run_id": store.run_id,
         "run_status": row["status"], "sample_evaluation_complete": completed, "provider": config.get("provider"),
@@ -428,6 +434,24 @@ def evaluate_store(store, labels):
             eligible_window_opportunities={'inherited_prefix': dict(shared), 'acquired_continuation': dict(added)},
             completion_scope='Selected prefix and acquired continuation are evaluated on unchanged labels. Reused evidence is not a new acoustic trial; censored predicted ends remain excluded.')
     report["schema_version"] = report_profile(store, collection=selection, checkpoint=captured, missing=continuation).evaluation
+    from .lineage import revision_aware
+    if revision_aware(store):
+        from .revisions import revision_facts
+        report["reviewed_revision"] = revision_facts(store)
+        report["analysis_kind"] = store.run.configuration["analysis_kind"]
+        report["grouping_and_timing_basis"] = "raw_correct_candidate_support"
+        if _identity_basis == "candidate":
+            effective = evaluate_store(store, labels, _identity_basis="resolution")
+            identity = dict(effective["recognition"])
+            identity["counts"] = {key.replace("correct_match", "correct_identity").replace("wrong_match", "wrong_identity"): value
+                                  for key, value in identity["counts"].items()}
+            report["reviewed_analysis"] = {
+                "basis": "saved_resolved_track_snapshots_against_independent_labels",
+                "identity": identity, "catalog_identity": effective["identity"],
+                "grouping": effective["grouping"], "timing": effective["timing"],
+                "new_acoustic_trials": 0,
+                "interpretation": "Raw recognition scores remain unchanged. Reviewed conclusions and their supported occurrences are scored separately; review does not establish acoustic accuracy.",
+            }
     return report
 
 

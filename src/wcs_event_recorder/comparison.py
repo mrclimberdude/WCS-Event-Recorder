@@ -36,7 +36,7 @@ def resolution_view(resolution):
             "conflicting_track_ids": list(resolution.conflicting_track_ids)}
 
 
-def play_view(store, play, result_ids, plays):
+def play_view(store, play, result_ids, plays, *, revision_context=False):
     def mapped(values):
         return [result_ids.get(value, value) for value in values]
     context = store.attribution(play.play_id)
@@ -44,6 +44,9 @@ def play_view(store, play, result_ids, plays):
         context = attribution_document(context, store.source)
         for key in ("attribution_id", "run_id", "play_id", "analysis_stage"):
             context.pop(key)
+        if revision_context:
+            for key in ("snapshot_id", "provenance", "quantized_boundaries"):
+                context.pop(key, None)
     return {"track_id": play.track_id, "window": asdict(play.window), "boundary_method": play.boundary_method,
             "closure_reason": play.closure_reason, "support": mapped(play.recognition_result_ids),
             "bridged": mapped(play.bridged_result_ids),
@@ -84,11 +87,16 @@ def build_comparison(parent, child):
     if child.derivation is None or child.derivation["parent_run_id"] != parent.run_id:
         raise ComparisonError("comparison requires an immediate parent and its derived child")
     prefix = prefix_aware(child)
+    from .methods import REVISION_METHOD
+    revised = child.derivation["method_version"] == REVISION_METHOD
     reconstructed = method_spec(child.derivation["method_version"]).reconstructed
-    if (parent.row()["status"] != "completed" and not reconstructed) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
+    if (parent.row()["status"] != "completed" and not reconstructed and not revised) or child.row()["status"] != ("completed_partial" if prefix else "completed"):
         raise ComparisonError("full comparison requires two completed analyses; inspect partial evidence with show-run")
     try:
-        if prefix:
+        if revised:
+            from .revisions import validate_revision_parent
+            validate_revision_parent(child)
+        elif prefix:
             validate_reuse(child, complete=True)
             validate_closed_evidence(child)
         else:
@@ -140,7 +148,8 @@ def build_comparison(parent, child):
     for old, new in occurrence_components(before_plays, after_plays, support_map):
         item = {"parent_play_ids": [p.play_id for p in old], "child_play_ids": [p.play_id for p in new]}
         if len(old) == len(new) == 1:
-            changes = differences(play_view(parent, old[0], {}, before_by_id), play_view(child, new[0], support_map, after_by_id))
+            changes = differences(play_view(parent, old[0], {}, before_by_id, revision_context=revised),
+                                  play_view(child, new[0], support_map, after_by_id, revision_context=revised))
             item.update(kind="changed" if changes else "unchanged", changes=changes,
                         start_delta_frames=new[0].window.start_frame - old[0].window.start_frame,
                         end_delta_frames=new[0].window.end_frame - old[0].window.end_frame)
@@ -220,6 +229,18 @@ def build_comparison(parent, child):
         if added_observations or prefix:
             report.update(semantic_equivalent=None, equivalence_scope='Inputs cover different or partial source windows; compare shared conclusions and added evidence separately.')
     report["schema_version"] = report_profile(child, collection=selection, checkpoint=captured, missing=continuation).comparison
+    if revised:
+        from .revisions import revision_facts
+        equivalent = not identities and all(item["kind"] == "unchanged" for item in occurrences)
+        report.update(method="reviewed_revision_comparison_v1", reviewed_revision=revision_facts(child),
+            baseline_derivation_complete=True, full_source_coverage=not prefix,
+            baseline_selected_windows=len(parent.results()), candidate_selected_windows=len(child.results()),
+            shared_selected_windows=len(child.results()), added_observations=[],
+            selected_evidence_semantic_equivalent=equivalent,
+            semantic_equivalent=None if prefix else equivalent,
+            equivalence_scope="Selected saved identities, grouping, timing, uncertainty and expected context; schedule snapshot/provenance/quantization are retained as audit facts. Full-source equivalence is unavailable for a partial prefix. Equivalence is not accuracy.",
+            occurrence_interpretation="A successful parent's selected observations are unchanged. Only explicit reviewed decisions or the expected schedule are revised; this is not new recognition.",
+            schedule_revision={"before": parent.schedule_snapshot(), "after": child.schedule_snapshot()})
     return report
 
 
@@ -242,11 +263,14 @@ def comparison_lines(report):
     yield f"Comparison: {report['baseline_run_id']} -> {report['candidate_run_id']}"
     yield f"Equivalent conclusions: {report['semantic_equivalent']}; identity changes: {report['identity_changed_windows']}; resolution audit changes: {len(report['resolution_changes'])}"
     yield f"Occurrences: {report['occurrence_summary']}; new provider requests during analysis: 0" if report["schema_version"] >= 2 else f"Occurrences: {report['occurrence_summary']}; new provider requests: 0"
-    if report["schema_version"] >= 2:
+    if "outcome_changes" in report:
         yield f"Changed window outcomes: {len(report['outcome_changes'])}; newly selected retry outcomes: {report['newly_selected_retry_outcomes']}; observation provenance identifies collection separately."
     if 'added_observations' in report:
         yield f"Added observations: {len(report['added_observations'])}; source windows: {report['baseline_selected_windows']} -> {report['candidate_selected_windows']}"
-    if "baseline_derivation_complete" in report:
+    if "reviewed_revision" in report:
+        review = report["reviewed_revision"]
+        yield f"Review: {review['review_id']}; kind: {review['kind']}; selected-evidence equivalent: {report['selected_evidence_semantic_equivalent']}; full-source coverage: {report['full_source_coverage']}"
+    elif "baseline_derivation_complete" in report:
         yield f"Baseline derivation complete: {report['baseline_derivation_complete']}; recovered decisions: {len(report['recovered_resolution_decisions'])}; historical EOF unknown."
     if "saved_prefix_recovery" in report:
         coverage = report["saved_prefix_recovery"]["coverage"]

@@ -35,6 +35,9 @@ def run(args):
         report = evaluate_run(args.database, args.run_id, args.labels, args.output)
         print(f"Evaluation: {report['run_id']}; status: {report['run_status']}; observed/planned windows: {report['observed_windows']}/{report['planned_windows']}")
         print(f"Recognition: {report['recognition']['counts']}; splits: {len(report['grouping']['splits'])}; joins: {len(report['grouping']['joins'])}")
+        if "reviewed_analysis" in report:
+            reviewed = report["reviewed_analysis"]
+            print(f"Reviewed identity: {reviewed['identity']['counts']}; splits: {len(reviewed['grouping']['splits'])}; joins: {len(reviewed['grouping']['joins'])}")
         print(f"Report: {args.output}")
         return 0
     if args.command in {"list-runs", "show-run", "export-run"}:

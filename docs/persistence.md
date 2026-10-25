@@ -30,7 +30,9 @@ The A occurrences share one track ID and have different play IDs. The final unkn
 
 `--schedule` is optional. When supplied, its exact validated JSON document is retained with a normalized-content hash, input path, provenance, and run-specific coverage warnings. Warnings do not fail processing. The separate attribution policy now uses the saved document to produce expected session/DJ segments, retaining gaps and conflicts explicitly. Revised schedule documents create different snapshots; repeated session IDs remain scoped to their document.
 
-The database is created if absent for processing. Recognized schema-version-1/2/3/4 databases now migrate atomically to version 5 on writable open; read-only inspection preserves versions 1/2/3/4/5. Unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed for fixture processing.
+The database is created if absent for processing. Recognized schema versions 1-9 migrate atomically to version 10 on writable open; read-only inspection preserves versions 1-10. Unrelated databases, unsupported versions, conflicting source metadata, and corrupt files are refused. No credentials or network requests are needed for fixture processing.
+
+[Reviewed revisions](revisions.md) add schema-10 frozen review manifests and per-match copied/reviewed resolution applications. Earlier report formats remain unchanged; reviewed analyses use export/comparison/diagnostic-evaluation profiles 11/8/9. [Local history](history.md) navigates the separate original, recovery and review branches read-only.
 
 ## Inspect after restarting
 

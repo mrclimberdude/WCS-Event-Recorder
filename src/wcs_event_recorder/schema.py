@@ -1,7 +1,7 @@
 """Additive local evidence schemas; diagnostic JSONL versions are independent."""
 
 APPLICATION_ID = 0x57435354  # WCST
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 V1_STATEMENTS = (
     """CREATE TABLE recording_sources (
@@ -300,6 +300,25 @@ MISSING_STATEMENTS = (
 )
 STATEMENTS = tuple(sql.replace("'checkpoint_prefix_recovery_v1'))", "'checkpoint_prefix_recovery_v1','missing_window_recovery_v1'))") for sql in V8_STATEMENTS) + MISSING_STATEMENTS
 TABLES = V8_TABLES | {"missing_collections", "missing_slots", "missing_attempts", "missing_analysis_manifests", "missing_result_selections"}
+V9_TABLES, V9_STATEMENTS = TABLES, STATEMENTS
+REVISION_STATEMENTS = (
+    """CREATE TABLE analysis_revision_manifests (
+        run_id TEXT PRIMARY KEY, parent_run_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        plan_sha256 TEXT NOT NULL, plan_json TEXT NOT NULL,
+        FOREIGN KEY(run_id, parent_run_id) REFERENCES analysis_derivations(run_id, parent_run_id),
+        FOREIGN KEY(run_id, source_id) REFERENCES analysis_runs(run_id, source_id))""",
+    """CREATE TABLE revision_resolution_applications (
+        run_id TEXT NOT NULL, result_id TEXT NOT NULL, parent_result_id TEXT NOT NULL,
+        window_ordinal INTEGER NOT NULL CHECK(window_ordinal > 0),
+        action TEXT NOT NULL CHECK(action IN ('copied','assign','unresolved')),
+        parent_resolution_sha256 TEXT NOT NULL, resolution_sha256 TEXT NOT NULL,
+        PRIMARY KEY(run_id, result_id), UNIQUE(run_id, window_ordinal),
+        FOREIGN KEY(run_id) REFERENCES analysis_revision_manifests(run_id),
+        FOREIGN KEY(result_id) REFERENCES track_resolutions(result_id),
+        FOREIGN KEY(run_id, result_id) REFERENCES reused_result_links(run_id, result_id))""",
+)
+STATEMENTS = tuple(sql.replace("'missing_window_recovery_v1'))", "'missing_window_recovery_v1','reviewed_revision_v1'))") for sql in V9_STATEMENTS) + REVISION_STATEMENTS
+TABLES = V9_TABLES | {"analysis_revision_manifests", "revision_resolution_applications"}
 
 
 
@@ -423,3 +442,15 @@ def migrate_to_v9(db):
     if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ValueError("foreign-key integrity failed during missing-window migration")
     db.execute("PRAGMA user_version = 9")
+
+
+def migrate_to_v10(db):
+    names = ("analysis_derivations", "reused_result_links", "recovery_analysis_links", "recovery_result_selections",
+        "analysis_recovery_manifests", "analysis_collection_manifests", "missing_analysis_manifests", "missing_result_selections")
+    statements = tuple(sql for sql in STATEMENTS if any(sql.startswith("CREATE TABLE " + name + " ") for name in names))
+    _rebuild_graph(db, names, statements, suffix="_v10")
+    for sql in REVISION_STATEMENTS:
+        db.execute(sql)
+    if db.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise ValueError("foreign-key integrity failed during reviewed-revision migration")
+    db.execute("PRAGMA user_version = 10")

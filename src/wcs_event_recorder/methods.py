@@ -13,6 +13,7 @@ CHECKPOINT_COLLECTION_METHOD = "checkpoint_collection_recovery_v1"
 CHECKPOINT_COMPLETE_METHOD = "checkpoint_complete_recovery_v1"
 CHECKPOINT_PREFIX_METHOD = "checkpoint_prefix_recovery_v1"
 MISSING_METHOD = "missing_window_recovery_v1"
+REVISION_METHOD = "reviewed_revision_v1"
 SAVED_TERMINATION = "saved_complete_grid_v1"
 PREFIX_TERMINATION = "saved_prefix_grid_v1"
 ALLOCATION = "seed_origin_uuid_v1"
@@ -34,6 +35,7 @@ PROFILES = MappingProxyType({
     "saved": ReportProfile(6, 3, 4, 4), "prefix": ReportProfile(7, 4, 5, 5),
     "collection": ReportProfile(8, 5, 6, 6), "checkpoint": ReportProfile(9, 6, 7, 7),
     "missing": ReportProfile(10, 7, 8, 8),
+    "revision": ReportProfile(11, 8, 9, 9),
 })
 
 
@@ -73,6 +75,8 @@ _SPECS = (
         manifest="analysis_recovery_manifests", reconstructed=True),
     MethodSpec(MISSING_METHOD, ("missing_recovery", "validate_missing_analysis"), "missing_selection", "dynamic_prefix", "missing",
         "missing_result_selections", "missing_analysis_manifests", reconstructed=True, resets_parent_completion=True),
+    MethodSpec(REVISION_METHOD, ("revisions", "validate_revision"), "reviewed_saved_outcomes", "dynamic_prefix", "revision",
+        manifest="analysis_revision_manifests"),
 )
 METHODS = MappingProxyType({item.name: item for item in _SPECS})
 
@@ -94,6 +98,8 @@ def is_prefix(store):
 
 def report_profile(store, *, collection=None, checkpoint=None, missing=None):
     """Select a format from validated facts, including inherited provenance."""
+    if store.derivation is not None and store.derivation["method_version"] == REVISION_METHOD:
+        return PROFILES["revision"]
     if missing is not None:
         return PROFILES["missing"]
     if checkpoint is not None:

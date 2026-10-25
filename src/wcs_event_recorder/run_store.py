@@ -20,7 +20,7 @@ from .models import AnalysisRun, AudioWindow, RecognitionStatus, ResolutionDecis
 from .resolution import ResolutionPolicy
 from .storage import Database, SQLiteTrackCatalog, StorageError
 from .windows import WindowConfig
-from .methods import report_profile
+from .methods import REVISION_METHOD, report_profile
 from .read_evidence import decoded, indexed, memo_store, one, result as read_result, rows
 
 
@@ -34,10 +34,11 @@ class RunStore:
         config = self.run.configuration
         self.derivation = derivation(db, run_id)
         self.analysis_stage = STAGE if self.derivation is not None else "live_provisional"
-        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery", "incomplete_collection_recovery", "checkpoint_prefix_recovery", "checkpoint_complete_recovery", "checkpoint_collection_recovery", "missing_window_recovery"}
+        if (config.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery", "incomplete_collection_recovery", "checkpoint_prefix_recovery", "checkpoint_complete_recovery", "checkpoint_collection_recovery", "missing_window_recovery", "reviewed_revision"}
                 or config.get("aggregation_termination_policy") is not None) and self.derivation is None:
             raise StorageError("offline run is missing derivation metadata")
-        partial_kind = ("missing_window_recovery" if self.derivation and self.derivation['method_version'] == MISSING_METHOD else
+        partial_kind = ("reviewed_revision" if self.derivation and self.derivation['method_version'] == REVISION_METHOD else
+                        "missing_window_recovery" if self.derivation and self.derivation['method_version'] == MISSING_METHOD else
                         "checkpoint_prefix_recovery" if self.derivation and self.derivation["method_version"] == CHECKPOINT_PREFIX_METHOD else "saved_prefix_recovery")
         if row["status"] == "completed_partial" and (not prefix_aware(self) or config.get("analysis_kind") != partial_kind
                 or config.get("aggregation_termination_policy") != PREFIX_TERMINATION or row["terminal_error"] is not None):
@@ -355,6 +356,10 @@ class RunStore:
             if self.derivation['method_version'] == MISSING_METHOD:
                 new = self.db.execute('SELECT count(*) FROM missing_result_selections WHERE run_id=? AND attempt_id IS NOT NULL', (self.run_id,)).fetchone()[0]
                 summary.update(newly_selected_missing_outcomes=new, reused_outcomes=sum(counts.values()) - new)
+        from .revisions import revision_facts
+        revision = revision_facts(self)
+        if revision is not None:
+            summary["reviewed_revision"] = revision
         return summary
 
     def complete(self):
@@ -366,6 +371,8 @@ class RunStore:
             summary = self.summary()
             if 'missing_window_recovery' in summary:
                 summary['missing_window_recovery']['analysis_execution_complete'] = True
+            if 'reviewed_revision' in summary:
+                summary['reviewed_revision']['analysis_execution_complete'] = True
             if prefix_aware(self):
                 from .saved_recovery import prefix_input_count
                 expected = prefix_input_count(self)
@@ -469,6 +476,9 @@ class RunStore:
         if self.derivation is not None:
             yield record("analysis_derived", derivation=self.derivation,
                          catalog_seed=load_catalog_snapshot(self.db, self.derivation["catalog_snapshot_id"]))
+        if self.derivation is not None and self.derivation["method_version"] == REVISION_METHOD:
+            from .revisions import revision_facts, revision_manifest
+            yield record("reviewed_revision_inputs", manifest=revision_manifest(self), revision=revision_facts(self))
         if (saved_aware(self) or prefix_aware(self)) and not continuation:
             from .saved_recovery import completion_facts, inherited_manifest
             yield record("saved_recovery_inputs", manifest=inherited_manifest(self), completion=completion_facts(self))
@@ -517,6 +527,10 @@ class RunStore:
                                  origin=observation_origin(self.db, self.run_id, result.result_id))
             elif event["kind"] == "resolution":
                 yield record("track_resolution", **asdict(self.resolution(event["id"])))
+                if self.derivation is not None and self.derivation["method_version"] == REVISION_METHOD:
+                    application = self.db.execute("SELECT * FROM revision_resolution_applications WHERE run_id=? AND result_id=?", (self.run_id, event["id"])).fetchone()
+                    if application is not None:
+                        yield record("review_resolution_applied", application=dict(application))
             elif event["kind"] == "context":
                 attribution = self.attribution(event["id"])
                 item = self.db.execute("SELECT processed_at FROM play_attributions WHERE attribution_id = ?", (attribution.attribution_id,)).fetchone()

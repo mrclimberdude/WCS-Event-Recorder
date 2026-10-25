@@ -12,7 +12,7 @@ from .recognition import RecognitionStopped
 from .run_output import RunOutputError
 from .storage import StorageError
 from .windows import WindowStreamError
-from . import cli_inspection, cli_processing, cli_recovery
+from . import cli_inspection, cli_processing, cli_recovery, cli_phase2
 from .cli_parser import build_parser
 from .cli_output import _diagnostic_hint
 
@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command in cli_phase2.COMMANDS:
+            return cli_phase2.run(args)
         if args.command in cli_recovery.COMMANDS:
             return cli_recovery.run(args)
         if args.command in cli_processing.COMMANDS:

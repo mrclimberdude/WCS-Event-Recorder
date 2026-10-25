@@ -280,6 +280,15 @@ def build_run_diagnostics(store):
         report.update(missing_window_recovery=continuation,
             coverage_note='Selected evidence includes a bounded acquired continuation. Analysis uploads nothing; collection requests, source coverage and unknown historical receipt/billing are separate.')
     report["schema_version"] = report_profile(store, collection=selection, checkpoint=captured, missing=continuation).diagnostic
+    from .lineage import revision_aware
+    if revision_aware(store):
+        from .revisions import revision_facts
+        report["reviewed_revision"] = revision_facts(store)
+        report["analysis_kind"] = store.run.configuration["analysis_kind"]
+        report["status_note"] = ("Reviewed offline analysis finished over its selected evidence; source coverage remains partial."
+                                 if status == "completed_partial" else
+                                 "Reviewed offline analysis completed; review does not certify recognition or actual schedule accuracy."
+                                 if status == "completed" else report["status_note"])
     return report
 
 
@@ -302,6 +311,9 @@ def diagnostic_lines(report):
     yield f"Run {report['run_id']}: {report['run_status']}. {report['status_note']}"
     yield f"Saved outcomes: {report['saved_outcomes']}/{report['planned_windows']} planned windows; errors: {report['error_count']}; windows without a saved result: {report['windows_without_saved_result']}"
     yield f"Outcomes: {report['outcome_counts']}; failure families: {report['failure_family_counts']}"
+    if "reviewed_revision" in report:
+        review = report["reviewed_revision"]
+        yield f"Review: {review['review_id']}; kind: {review['kind']}; reviewer: {review['reviewer']}; new provider requests: 0."
     if report.get("analysis_kind") in {"offline_reprocess", "selected_error_recovery", "saved_evidence_recovery", "saved_prefix_recovery"}:
         yield f"Offline analysis; parent: {report['parent_run_id']}; new provider requests: 0; error facts describe original observations."
     yield report["coverage_note"]

@@ -27,6 +27,9 @@ def write_plan(plan, output):
 
 
 def validate_prefix(parent):
+    from .lineage import revision_aware
+    if revision_aware(parent):
+        raise RecoveryError('reviewed analyses require plan-revision; missing-window recognition cannot preserve scoped review decisions')
     check_acyclic(parent.db, parent.run_id)
     if parent.row()['status'] != 'completed_partial' or parent.derivation is None:
         raise RecoveryError('missing-window recognition requires a validated completed_partial parent')

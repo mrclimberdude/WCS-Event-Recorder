@@ -137,6 +137,9 @@ def validate_closed_evidence(store):
 
 @memo_store
 def validate_parent(store):
+    from .lineage import revision_aware
+    if revision_aware(store):
+        raise ReprocessingError("reviewed analyses require plan-revision; ordinary reprocessing/recovery cannot preserve review decisions")
     try:
         check_acyclic(store.db, store.run_id)
     except ValueError as exc:

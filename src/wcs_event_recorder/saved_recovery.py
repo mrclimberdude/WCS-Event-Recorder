@@ -33,6 +33,9 @@ def _aware(value):
 
 @memo_store
 def inspect_failed(parent, *, coverage="complete", _running=False):
+    from .lineage import revision_aware
+    if revision_aware(parent):
+        raise SavedRecoveryError("reviewed analyses require plan-revision; saved recovery cannot preserve review decisions")
     """Validate raw inputs, deliberately independent of unfinished conclusions."""
     check_acyclic(parent.db, parent.run_id)
     if coverage not in {"complete", "prefix"}:
@@ -295,6 +298,10 @@ def planned_input_count(plan):
 def prefix_input_count(store):
     # Callers validate the run's manifest before using this finalization count.
     from .lineage import MISSING_METHOD
+    from .methods import REVISION_METHOD
+    if store.derivation is not None and store.derivation['method_version'] == REVISION_METHOD:
+        from .revisions import revision_manifest
+        return revision_manifest(store)['input']['selected_windows']
     if store.derivation is not None and store.derivation['method_version'] == MISSING_METHOD:
         from .missing_recovery import missing_manifest
         return missing_manifest(store)['through_window']

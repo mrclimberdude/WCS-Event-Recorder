@@ -1,5 +1,8 @@
 # Offline reprocessing and comparison
 
+
+For analyses carrying [reviewed identity/schedule revisions](revisions.md), use another explicit revision plan. This legacy workflow refuses review-bearing inputs when it cannot preserve scoped decisions. Collect or reconstruct additional evidence on an eligible unrevised branch before creating a fresh review against the resulting analysis.
+
 Phase 2 step 2 creates a separate analysis from a completed run's saved normalized recognition outcomes. It reruns track resolution, occurrence grouping, and scheduled attribution without reading audio, accessing an AudD token, or making provider requests. The method is `saved_outcomes_reprocessing_v1`.
 
 ## Create a revised analysis

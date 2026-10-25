@@ -12,6 +12,7 @@ from .resolution import TrackResolver
 from .run_output import RunOutputError
 from .run_store import RunStore
 from .storage import Database, SQLiteTrackCatalog, StorageError
+from .methods import REVISION_METHOD
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,10 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                        if store.derivation is not None else SQLiteTrackCatalog(store.db))
             resolver = (TrackResolver(catalog, store.resolution_policy, new_track_id=stable_track_allocator(store))
                         if recovery_aware(store) else TrackResolver(catalog, store.resolution_policy))
+            revision_plan = None
+            if store.derivation is not None and store.derivation["method_version"] == REVISION_METHOD:
+                from .revisions import revision_manifest, save_revision_resolution
+                revision_plan = revision_manifest(store)
             aggregator = SongPlayAggregator(store.source, store.config, store.run_id, store.policy, analysis_stage=store.analysis_stage)
             for result in iterator:
                 store.result(result)
@@ -37,11 +42,12 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
                         # Optional diagnostic output must not undo committed
                         # analysis or replace the original failure.
                         pass
-                resolution = store.resolve(result, resolver) if result.status == RecognitionStatus.MATCH else None
+                resolution = (save_revision_resolution(store, result, plan=revision_plan) if revision_plan is not None
+                    else store.resolve(result, resolver)) if result.status == RecognitionStatus.MATCH else None
                 for play in aggregator.accept(result, resolution):
                     store.play(play)
                     if on_play is not None:
-                        on_play(play, resolver.catalog.get(play.track_id))
+                        on_play(play, SQLiteTrackCatalog(store.db).get(play.track_id) if revision_plan else resolver.catalog.get(play.track_id))
             termination = store.run.configuration.get("aggregation_termination_policy")
             if prefix_aware(store):
                 from .saved_recovery import prefix_input_count
@@ -53,7 +59,7 @@ def persist_results(results, store: RunStore, *, on_play=None, on_result=None):
             for play in finished:
                 store.play(play)
                 if on_play is not None:
-                    on_play(play, resolver.catalog.get(play.track_id))
+                    on_play(play, SQLiteTrackCatalog(store.db).get(play.track_id) if revision_plan else resolver.catalog.get(play.track_id))
         store.complete()
     except BaseException as exc:
         try:

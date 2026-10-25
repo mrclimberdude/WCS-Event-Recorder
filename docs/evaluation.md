@@ -105,6 +105,21 @@ Synthetic tests calculate correct/wrong/no-match/error denominators by hand, the
 
 For the actual trial, prepare the private 3–5 minute sample with at least two known songs and an observed transition; label it independently; review `plan-audd`; explicitly execute one bounded provider run; reopen and inspect/export the database; then evaluate using these labels. Compare mismatches with evidence and record whether the observed result supports further trials. Keep poor results as measured findings rather than tuning labels or silently relaxing identity/grouping rules. The [provider guide](provider-recognition.md) explains execution and error behavior; the [step 8 plan](phase-1-step-8-plan.md) defines the remaining acceptance gate.
 
+## Room-recording acceptance
+
+The working capture baseline is one room microphone, without requiring a DJ-booth connection. Software currently evaluates saved files; room samples can be recorded with external equipment before independent application capture is implemented in Phase 6. Keep the Berlin livestream/two-song result as the existing reference. It does not establish accuracy for microphone placement, crowd noise or ballroom acoustics.
+
+For the next acoustic trials:
+
+1. Retain an unchanged room recording and private notes on microphone/device, placement, levels/format, recording-time anchor and timezone. Include representative clear music, crowd noise, announcements, applause, fades and any audible clipping or reverberation. An at-home recording can check the workflow; representative event audio is needed for event-accuracy claims.
+2. Label known songs and boundaries independently before inspecting provider answers. Preserve remix distinctions, uncertain transitions, speech and unknown spans. Do not infer ground truth from the published schedule or expand accepted aliases merely to accept a provider result.
+3. Review `plan-audd` and run an explicitly bounded trial using the existing provider commands. Report correct/wrong/no-match/error counts, eligible denominators, recognized/output-covered occurrences, splits/joins and assessable timing errors. Reprocessing reused observations adds no independent acoustic evidence.
+4. Review raw results in speech/noise and other excluded spans separately. The current evaluator excludes these spans from song-window accuracy and does not automatically score their false positives or group scores by recording condition. Keep those observations in trial notes rather than claiming unsupported automated metrics.
+5. Retain measured wall time, request counts, working memory and total source/preparation/database/checkpoint/workspace storage for the one-source workload. Record failures and uncertain results. Denoising, different placement or other preparation can be separate controlled experiments when a measured problem justifies them; preserve original hashes and reproducible frame/time mappings.
+6. For schedule-attribution review, record independently observed activity transitions and known DJ changes with timestamp uncertainty in separate private notes. The current label schema/evaluator does not score actual session/DJ accuracy. Compare schedule-only context to those observations separately; a plausible scheduled label is not confirmation of actual activity.
+
+A longer Phase 2 file trial should include repeated songs, schedule/recording boundaries, controlled analysis interruptions, selected recovery and versioned corrections as those features become available. Define its acceptance requirements before interpreting the results. Direct-feed acquisition, dual-feed alignment/selection and room-mic-versus-line-feed comparison are deferred and are not required for this trial. Live recording resilience is a separate Phase 6 gate in the [active roadmap](implementation-plan.md#phase-6-live-capture-and-event-trial).
+
 ## Recovery-aware evaluation
 
 [Selected-error recovery](recovery.md) preserves one selected outcome per window, with old observations and retry attempts retained in lineage. Recovery-aware analyses and pure descendants use report schema 3, `selected_window_outcomes`, `selected_coverage`, and `windows_without_selected_outcome`. Observation inventory and latency distinguish original/retry origins; analysis itself makes zero requests, while collection attempts are reported separately and billing remains unknown. Independent labels, exclusions and scoring rules are unchanged. Pure-derived reports retain schema 2 and original reports retain schema 1.
@@ -116,3 +131,12 @@ For the actual trial, prepare the private 3–5 minute sample with at least two 
 ## Missing-suffix continuation
 
 [Step 3c](missing-recovery.md) and descendants use evaluation schema 8 with continuation/collection and optional checkpoint provenance. Source/hash-bound labels stay unchanged. Reports distinguish inherited-prefix and acquired-continuation label opportunities; actual selected observation inventory separately distinguishes original, retry and missing-window origins. Newly added observations have no fictional parent result. Partial predicted ends remain censored independently of label censoring; full-grid continuation can restore eligible full-grid metrics without claiming historical EOF or broader acoustic accuracy. Reused observations are not additional independent trials.
+
+
+## Reviewed analysis evaluation
+
+[Reviewed revisions](revisions.md) use evaluation schema 9 and preserve independent labels unchanged. The top-level `recognition` metrics still judge original provider candidates; correction cannot improve those saved acoustic results. Existing top-level grouping/timing retain raw-correct-candidate support, explicitly declared by `grouping_and_timing_basis`.
+
+The separate `reviewed_analysis` block scores saved resolved Track snapshots against label aliases. Its identity counts distinguish `correct_identity`, `wrong_identity`, `identity_unresolved`, ambiguity and exclusions; no-match/error observations remain original outcomes. Its grouping and timing use correctly supported reviewed identities, so a raw wrong candidate can support a correct reviewed conclusion without becoming a new correct recognition attempt. Predicted prefix endings remain censored independently of label censoring. `reviewed_revision` carries reviewer/rationale, frozen selection, schedule changes, coverage and zero new acoustic observations.
+
+Use the [trial-readiness handoff](phase-2-trial-readiness.md) for the offline installed-command walkthrough and pending longer room recording. Actual schedule/DJ accuracy still requires separately observed event activity; reviewed expected schedules do not supply independent ground truth automatically.

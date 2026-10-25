@@ -100,3 +100,8 @@ Recognition candidates have no canonical track ID until resolution. Results reta
 ## Private evaluation sample
 
 The generated demo contains silence and demonstrates software behavior through validation, replay, fixture recognition, and grouping. The real Phase 1 evaluation still needs a private 3–5 minute event WAV containing at least two known songs. Place it under `data/samples/` with a manifest, schedule, and notes recording approximate known song boundaries. Keep that audio and its notes out of version control. Automated tests use synthetic audio and can run before this sample is selected.
+
+
+## Private preparation before processing
+
+Use [prepare-audio](audio-preparation.md) to produce a bounded exact PCM WAV trim or extract one channel. Its new `recording.json` is a compatible recording manifest with a distinct derived source ID; `preparation.json` binds input/output hashes, explicit decisions and exact frame/clock mapping. It changes neither the source recording nor existing manifests. Rates and integer sample widths are preserved. Compressed/container decoding and resampling are not supported by this operation. Labels must bind the selected output's own identity/hash/format rather than silently reusing the original source labels.

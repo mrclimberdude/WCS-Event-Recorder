@@ -14,6 +14,7 @@ from wcs_event_recorder.missing_recovery import collect_missing, plan_missing_an
 from wcs_event_recorder.persistence import persist_results
 from wcs_event_recorder.run_store import RunStore
 from wcs_event_recorder.saved_recovery import create_saved_analysis
+from wcs_event_recorder.schema import SCHEMA_VERSION
 from wcs_event_recorder.storage import Database
 
 
@@ -63,7 +64,7 @@ def test_genuine_v8_checkpoint_workspace_preserves_ownership_and_accepts_continu
     snapshot = (bundle / 'checkpoint.sqlite3').read_bytes()
     live = old_path.read_bytes()
     with Database(target) as db:
-        assert db.schema_version == 9 and not db.execute('PRAGMA foreign_key_check').fetchall()
+        assert db.schema_version == SCHEMA_VERSION and not db.execute('PRAGMA foreign_key_check').fetchall()
         current = RunStore(db, child_id)
         assert list(current.records()) == before
         assert tuple(db.execute('SELECT * FROM checkpoint_workspaces').fetchone()) == owner

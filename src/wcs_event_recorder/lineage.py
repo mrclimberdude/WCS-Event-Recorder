@@ -11,7 +11,7 @@ from .read_evidence import decoded, indexed, memo_db, one
 
 from .methods import (METHOD, RECOVERY_METHOD, SAVED_METHOD, SAVED_TERMINATION, COLLECTION_METHOD,
     CHECKPOINT_COLLECTION_METHOD, CHECKPOINT_COMPLETE_METHOD, CHECKPOINT_PREFIX_METHOD, CHECKPOINT_METHODS,
-    COLLECTION_METHODS, PREFIX_METHOD, PREFIX_TERMINATION, MISSING_METHOD, ALLOCATION, STAGE, is_prefix, method_spec)
+    COLLECTION_METHODS, PREFIX_METHOD, PREFIX_TERMINATION, MISSING_METHOD, REVISION_METHOD, ALLOCATION, STAGE, is_prefix, method_spec)
 
 
 def digest(value):
@@ -156,6 +156,17 @@ def origin_summary(origin):
 
 def recovery_aware(store):
     return store.run.configuration.get("track_id_allocation_policy") == ALLOCATION
+
+
+def revision_aware(store):
+    """Review-bearing descendants must use an explicitly review-preserving operation."""
+    check_acyclic(store.db, store.run_id)
+    current = store.run_id
+    while (info := derivation(store.db, current)) is not None:
+        if info["method_version"] == REVISION_METHOD:
+            return True
+        current = info["parent_run_id"]
+    return False
 
 
 def stable_track_allocator(store):

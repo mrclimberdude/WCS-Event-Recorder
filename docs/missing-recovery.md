@@ -1,5 +1,8 @@
 # Recognize a missing suffix
 
+
+For analyses carrying [reviewed identity/schedule revisions](revisions.md), use another explicit revision plan. This legacy workflow refuses review-bearing inputs when it cannot preserve scoped decisions. Collect or reconstruct additional evidence on an eligible unrevised branch before creating a fresh review against the resulting analysis.
+
 Phase 2 step 3c extends a validated partial analysis by collecting a bounded contiguous continuation. Existing observations and conclusions remain unchanged; collection records new attempts, and a separate offline operation derives a new analysis. This guide describes the implemented commands. The [design](phase-2-step-3c-plan.md) records the contracts and acceptance scope.
 
 ## Choose the input
