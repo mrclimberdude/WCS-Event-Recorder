@@ -10,7 +10,7 @@ This is the active six-phase roadmap. Use [status](status.md) for current capabi
 | 2. Reliable local processing and correction | Software implemented; representative longer acceptance pending | Diagnostics, reconstruction/recovery, scoped review, exact PCM preparation and local reports |
 | 3. Attendee and operational views | Software implemented; real output activation gated | Safe local/mobile views, explicit metadata publication and optional Sheets mirror |
 | 4. Optional playlist destinations | Software implemented within capability limits; account acceptance pending | Reviewed Spotify/Apple catalog links and deterministic plans; mock-verified Spotify delivery |
-| 5. Richer event inference | Planned | Measured audio/MC evidence for boundaries, heat reconstruction and classification |
+| 5. Richer event inference | Foundation steps 1-5 software implemented; acoustic validation and steps 6-8 pending | Independent activity references and PCM measurements first, then measured audio/MC evidence for boundaries, heats and classification |
 | 6. Independent live capture and event trial | Planned | One retained room-microphone source with resilient recording and measured event operation |
 
 Hardware acquisition and external room-sample recording may proceed now. Direct DJ-booth feeds and dual-feed acquisition, synchronization, switching and reconciliation are optional deferred work, not acceptance requirements for the single-room baseline.
@@ -88,6 +88,10 @@ The [Phase 4 execution ledger](phase-4-plan.md#software-execution-ledger) record
 ## Phase 5: richer event inference
 
 Evaluate voice activity, targeted MC transcription, applause/music boundaries, heat reconstruction and bumper classification against labeled single-room examples. Preserve raw evidence, compare offline conclusions with original live predictions and report measured quality/uncertainty. Add preprocessing only for measured failures, retaining original audio and exact mappings. These are not prerequisites for the current local workflow.
+
+The active [Phase 5 execution plan](phase-5-plan.md) begins with independent overlapping activity labels, bounded per-channel PCM measurements, quiet-region evaluation and a private inspection report. Steps 1-2 provide [activity contracts and read-only label/source validation](activity-labels.md), deterministic rehearsal inputs and a [prototype trial checklist](phase-5-trial-checklist.md). Step 3 adds [streamed PCM measurements and strict feature-bundle verification](audio-features.md), and step 4a adds [explicit quiet candidates](quiet-regions.md). Step 4b adds [independent/synthetic evaluation](activity-evaluation.md) and [bounded exact boundary matching](activity-boundary-matching.md); step 5 adds [private inspection reports](activity-report.md). Foundation steps 1-5 software is implemented, with acoustic validation pending. The next assignment is step 6: independently labeled retained room recordings and declared calibration/evaluation partitions. These software steps can proceed before hardware/sample availability; hardware bench recordings and independently labeled room trials gate threshold calibration and richer speech/announcement/heat inference. Independent application-managed capture remains Phase 6.
+
+Step 3 implements the all-width PCM fixture matrix and shared before/after source checks under one extraction deadline. Steps 4-5 implement explicit synthetic quiet policies, matching work/state limits and bounded extrema-preserving plotting over verified artifacts. Retained evaluation verification checks actual eligible IDs, denominators, exclusions and durations without rerunning matching or proving optimality. Existing steps 1-2 behavior and completed verification records remain unchanged.
 
 ## Phase 6: live capture and event trial
 

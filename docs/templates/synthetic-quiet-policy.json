@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "quiet_policy",
+  "method": "sustained_quiet_v1",
+  "channels": [0],
+  "enter_mean_square": {"numerator": 1, "denominator": 10000},
+  "exit_mean_square": {"numerator": 1, "denominator": 100},
+  "minimum_quiet_frames": 4,
+  "minimum_active_frames": 2,
+  "aggregation": "all_below_enter_any_above_exit"
+}

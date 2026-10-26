@@ -1,0 +1,1 @@
+{"schema_version":1,"kind":"activity_scoring_policy","method":"activity_evaluation_v1","boundary_method":"activity_boundary_match_v1","boundary_tolerance_frames":1,"max_boundary_comparisons":2000000,"max_matching_work":10000000,"max_matching_records":250000,"max_seconds":120,"reference_partition":"calibration","partition_group":"synthetic-recording","reference_mode":"synthetic"}

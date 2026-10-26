@@ -15,6 +15,8 @@ The capture baseline is one room microphone, without a DJ-booth connection. Soft
 | Diagnose a failure or choose recovery | [Recovery chooser](docs/operator-guide.md#choose-a-recovery-operation) |
 | Open the local page or use a phone | [View runbook](docs/phase-3-deployment.md) |
 | Review Spotify/Apple matches, plan playlists or show song links | [Music outputs](docs/music-outputs.md) |
+| Prepare independent activity labels and prototype recordings | [Activity labels](docs/activity-labels.md), [trial checklist](docs/phase-5-trial-checklist.md) |
+| Measure, detect, evaluate and inspect private activity evidence | [Audio features](docs/audio-features.md), [quiet candidates](docs/quiet-regions.md), [activity evaluation](docs/activity-evaluation.md), [private report](docs/activity-report.md); foundation software implemented, acoustic validation pending |
 | Understand capabilities and remaining work | [Status](docs/status.md), [overview](docs/project-overview.md), [roadmap](docs/implementation-plan.md) |
 | Find a contract or historical design | [Documentation index](docs/index.md) |
 | Work on the code | [Developer guide](docs/developer-guide.md), [AGENTS.md](AGENTS.md) |

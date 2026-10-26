@@ -12,7 +12,8 @@ from .recognition import RecognitionStopped
 from .run_output import RunOutputError
 from .storage import StorageError
 from .windows import WindowStreamError
-from . import cli_inspection, cli_processing, cli_recovery, cli_phase2, cli_views, cli_music
+from . import cli_inspection, cli_processing, cli_recovery, cli_phase2, cli_views, cli_music, cli_activity
+from .activity_artifacts import ActivityError
 from .views import ViewError
 from .music_catalog import CatalogError
 from .catalog_transport import CatalogTransportError
@@ -28,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command in cli_activity.COMMANDS:
+            return cli_activity.run(args)
         if args.command in cli_music.COMMANDS:
             return cli_music.run(args)
         if args.command in cli_views.COMMANDS:
@@ -39,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in cli_processing.COMMANDS:
             return cli_processing.run(args, parser, parsers)
         return cli_inspection.run(args)
-    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError, ReprocessingError, ComparisonError, ViewError, CatalogError, CatalogTransportError, PlaylistError) as exc:
+    except (InputValidationError, AudioReadError, WindowStreamError, RunOutputError, StorageError, RecognitionStopped, EvaluationError, DiagnosticError, ReprocessingError, ComparisonError, ViewError, CatalogError, CatalogTransportError, PlaylistError, ActivityError) as exc:
         logger.error("%s", exc, exc_info=args.verbose)
         return 1
     except KeyboardInterrupt:

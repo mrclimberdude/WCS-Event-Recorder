@@ -1,0 +1,53 @@
+{
+  "description": "Independent integer arithmetic vectors. Samples are centered channel amplitudes; expected statistics are hand-calculated literals. Statistic order: minimum, maximum, absolute_peak, sum_squares, negative_rail_hits, positive_rail_hits.",
+  "cases": [
+    {
+      "name": "unsigned-eight-bit-rails-and-tail",
+      "sample_width": 1, "window_frames": 4,
+      "samples": [[-128], [127], [0], [1], [-2]],
+      "expected": [[[-128, 127, 128, 32514, 1, 1]], [[-2, -2, 2, 4, 0, 0]]]
+    },
+    {
+      "name": "signed-sixteen-bit-rails",
+      "sample_width": 2, "window_frames": 4,
+      "samples": [[-32768], [32767], [0], [-1]],
+      "expected": [[[-32768, 32767, 32768, 2147418114, 1, 1]]]
+    },
+    {
+      "name": "signed-twenty-four-bit-rails",
+      "sample_width": 3, "window_frames": 4,
+      "samples": [[-8388608], [8388607], [0], [2]],
+      "expected": [[[-8388608, 8388607, 8388608, 140737471578117, 1, 1]]]
+    },
+    {
+      "name": "signed-thirty-two-bit-exact-above-float-range",
+      "sample_width": 4, "window_frames": 4,
+      "samples": [[-2147483648], [2147483647], [0], [3]],
+      "expected": [[[-2147483648, 2147483647, 2147483648, 9223372032559808522, 1, 1]]]
+    },
+    {
+      "name": "stereo-opposite-polarity",
+      "sample_width": 2, "window_frames": 3,
+      "samples": [[3, -3], [-4, 4], [0, 0], [5, -5], [-12, 12]],
+      "expected": [[[-4, 3, 4, 25, 0, 0], [-3, 4, 4, 25, 0, 0]], [[-12, 5, 12, 169, 0, 0], [-5, 12, 12, 169, 0, 0]]]
+    },
+    {
+      "name": "stereo-eight-bit-short-source",
+      "sample_width": 1, "window_frames": 5,
+      "samples": [[-128, 127], [127, -128]],
+      "expected": [[[-128, 127, 128, 32513, 1, 1], [-128, 127, 128, 32513, 1, 1]]]
+    },
+    {
+      "name": "digital-zero-eight-bit",
+      "sample_width": 1, "window_frames": 2,
+      "samples": [[0], [0], [0]],
+      "expected": [[[0, 0, 0, 0, 0, 0]], [[0, 0, 0, 0, 0, 0]]]
+    },
+    {
+      "name": "eight-channel-profile-reset",
+      "sample_width": 3, "window_frames": 2,
+      "samples": [[1, -2, 3, -4, 5, -6, 7, -8], [1, -2, 3, -4, 5, -6, 7, -8], [0, 0, 0, 0, 0, 0, 0, 0]],
+      "expected": [[[1, 1, 1, 2, 0, 0], [-2, -2, 2, 8, 0, 0], [3, 3, 3, 18, 0, 0], [-4, -4, 4, 32, 0, 0], [5, 5, 5, 50, 0, 0], [-6, -6, 6, 72, 0, 0], [7, 7, 7, 98, 0, 0], [-8, -8, 8, 128, 0, 0]], [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]]]
+    }
+  ]
+}

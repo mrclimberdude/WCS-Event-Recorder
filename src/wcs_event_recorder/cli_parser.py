@@ -347,5 +347,56 @@ def build_parser():
     music.add_argument('--source-directory', type=Path, required=True)
     music.add_argument('--output-directory', type=Path, required=True)
     music.add_argument('--expires-at', required=True)
+    activity = commands.add_parser('validate-activity-labels', help='validate private activity references against exact local PCM bytes offline')
+    activity.add_argument('--manifest', type=Path, required=True)
+    activity.add_argument('--labels', type=Path, required=True)
+    activity.add_argument('--max-source-bytes', type=_positive_integer, default=2_000_000_000)
+    activity.add_argument('--max-seconds', type=_positive_integer, default=120,
+                          help='cooperative source-verification budget, at most 600 seconds')
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    activity = commands.add_parser('extract-audio-features', help='extract private per-channel PCM measurements offline')
+    activity.add_argument('--manifest', type=Path, required=True)
+    activity.add_argument('--output-directory', type=Path, required=True)
+    activity.add_argument('--window-frames', type=_positive_integer,
+                          help='nonoverlapping source frames per window; default ceil(sample_rate / 10)')
+    for name, default in (('max-source-bytes', 2_000_000_000),
+            ('max-source-frames', 86_400_000), ('max-windows', 100_000),
+            ('max-feature-bytes', 16_777_216), ('max-manifest-bytes', 65_536),
+            ('read-buffer-frames', 65_536)):
+        activity.add_argument('--' + name, type=_positive_integer, default=default)
+    activity.add_argument('--max-seconds', type=_positive_integer, default=120,
+                          help='one cooperative extraction budget, at most 600 seconds')
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    activity = commands.add_parser('verify-audio-features', help='verify a private feature bundle without reopening its audio')
+    activity.add_argument('--directory', type=Path, required=True)
+    activity.add_argument('--max-seconds', type=_positive_integer, default=120,
+                          help='cooperative bundle-verification budget, at most 600 seconds')
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    activity = commands.add_parser('analyze-quiet-regions', help='detect private sustained low-energy candidates from verified features offline')
+    activity.add_argument('--features-directory', type=Path, required=True)
+    activity.add_argument('--policy', type=Path, required=True)
+    activity.add_argument('--output', type=Path, required=True)
+    activity.add_argument('--max-candidates', type=_positive_integer, default=10_000,
+                          help='combined region/pending bound, at most 10000')
+    activity.add_argument('--max-seconds', type=_positive_integer, default=120,
+                          help='one cooperative verification/detection budget, at most 600 seconds')
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    activity = commands.add_parser('evaluate-activity', help='score private quiet candidates against explicitly selected activity references offline')
+    activity.add_argument('--features-directory', type=Path, required=True)
+    activity.add_argument('--candidates', type=Path, required=True)
+    activity.add_argument('--labels', type=Path, required=True)
+    activity.add_argument('--scoring-policy', type=Path, required=True)
+    activity.add_argument('--output', type=Path, required=True)
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    activity = commands.add_parser('render-activity-report', help='render a bounded private standalone activity inspection report offline')
+    activity.add_argument('--features-directory', type=Path, required=True)
+    activity.add_argument('--candidates', type=Path, required=True)
+    activity.add_argument('--labels', dest='labels_path', type=Path)
+    activity.add_argument('--evaluation', dest='evaluation_path', type=Path)
+    activity.add_argument('--output', type=Path, required=True)
+    for name, default in (('max-windows', 100_000), ('max-points-per-channel', 5_000),
+            ('max-annotations', 10_000), ('max-output-bytes', 8_388_608), ('max-seconds', 120)):
+        activity.add_argument('--' + name, type=_positive_integer, default=default)
+    activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
     return parser, commands.choices
 

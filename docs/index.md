@@ -12,6 +12,9 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Use local/mobile views or prepare metadata outputs | [View/deployment runbook](phase-3-deployment.md) |
 | Prepare a representative room trial | [Trial readiness](phase-2-trial-readiness.md), [acceptance](evaluation.md#room-recording-acceptance) |
 | Review catalog links or plan/deliver playlists | [Music outputs](music-outputs.md), [capability limits](phase-4-capabilities.md) |
+| Prepare activity labels and prototype recordings | [Activity labels](activity-labels.md), [trial checklist](phase-5-trial-checklist.md), [private notes template](templates/room-trial-notes.md) |
+| Measure private PCM amplitude and energy | [Feature extraction and verification](audio-features.md) |
+| Plan audio evidence and richer inference | [Phase 5 execution plan](phase-5-plan.md) (foundation steps 1-5 software implemented; acoustic validation and steps 6-8 remain pending) |
 | Understand or change the implementation | [Developer map/glossary](developer-guide.md), [AGENTS.md](../AGENTS.md), [detailed contracts](development-contracts.md) |
 | Maintain these pages | [Documentation rules and checker](documentation.md) |
 
@@ -26,6 +29,8 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Recovery | [Selected errors](recovery.md), [complete saved grid](saved-recovery.md), [saved prefix](prefix-recovery.md), [incomplete collections](collection-analysis.md), [checkpoints](checkpoints.md), [missing suffix](missing-recovery.md) |
 | Metadata outputs | [Safe projection/runtime](views.md), [HTTP/browser](web-view.md), [publication/withdrawal](publication.md), [Sheets](sheets.md) |
 | Music outputs | [Catalog review, playlist plans/delivery and links](music-outputs.md), [capabilities](phase-4-capabilities.md), [Phase 4 execution ledger](phase-4-plan.md#software-execution-ledger), [verification](phase-4-verification.md) |
+| Activity references | [Label validation](activity-labels.md), [frozen contracts](activity-contracts.md), [trial checklist](phase-5-trial-checklist.md), [steps 1-2 verification](phase-5-steps-1-2-verification.md) |
+| Private audio measurements | [PCM feature extraction and bundle verification](audio-features.md), [quiet candidates](quiet-regions.md), [step 3 verification](phase-5-step-3-verification.md), [step 4a verification](phase-5-step-4a-verification.md), [activity evaluation](activity-evaluation.md), [boundary matching](activity-boundary-matching.md), [private inspection report](activity-report.md), [foundation verification](phase-5-foundation-verification.md); acoustic validation pending |
 | Operations and capacity | [View runbook](phase-3-deployment.md), [view resource envelope](phase-3-operating-limits.md), [benchmarks](benchmarks.md), [storage limits](release-c-operating-limits.md), [trial readiness](phase-2-trial-readiness.md) |
 
 ## Historical plans and verification

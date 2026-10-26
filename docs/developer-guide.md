@@ -35,7 +35,7 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 
 | Responsibility | Modules |
 | --- | --- |
-| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py`, `cli_music.py` |
+| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py`, `cli_music.py`, `cli_activity.py` |
 | Source and time contracts | `models.py`, `inputs.py`, `audio.py`, `replay.py`, `windows.py`, `audio_preparation.py` |
 | Recognition and derived conclusions | `recognition.py`, `audd.py`, `resolution.py`, `aggregation.py`, `attribution.py`, `analysis.py` |
 | Durable commits and frozen evidence | `storage.py`, `schema.py`, `run_store.py`, `persistence.py`, `attribution_store.py`, `evidence.py`, `read_evidence.py`, `lineage.py` |
@@ -45,6 +45,7 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 | Safe views and optional outputs | `views.py`, `view_runtime.py`, `view_config.py`, `web.py`, packaged `web_assets/`, `publication.py`, `sheets.py`, `sheets_state.py`, `output_paths.py` |
 | Catalog selection and review | `music_selection.py`, `music_catalog.py`, `catalog_review.py`, `catalog_transport.py`, `catalog_spotify.py`, `catalog_apple.py` |
 | Playlist plans, delivery and links | `playlist_plan.py`, `playlist_delivery.py`, `playlist_state.py`, `playlist_http.py`, `music_links.py`, `music_publication.py`; [contracts/capability limits](music-outputs.md) |
+| Private activity foundation | `activity_artifacts.py`, `activity_labels.py`, `pcm_features.py`, `audio_features.py`, `feature_bundle.py`, `quiet_regions.py`, `activity_evaluation.py`, `activity_matching.py`, `activity_io.py`, `activity_report.py`, `cli_activity.py`; [labels](activity-labels.md), [features](audio-features.md), [quiet candidates](quiet-regions.md), [evaluation](activity-evaluation.md), [matching accounting](activity-boundary-matching.md), [reports](activity-report.md), [contracts](activity-contracts.md) |
 
 `tests/` mirrors these contracts and includes real SQLite locks/commits, fault injection, legacy migrations, synthetic CLI acceptance and optional Chromium checks. `scripts/recorder_benchmarks/` supplies frozen compatibility evidence and bounded resource probes. Private/generated artifacts belong under ignored `data/`.
 

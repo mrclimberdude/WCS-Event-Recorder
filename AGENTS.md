@@ -6,6 +6,8 @@ Read [current status](docs/status.md), the [overview](docs/project-overview.md) 
 
 Phases 1-4 software is implemented within documented scope/capabilities. Spotify delivery is mock-verified; Apple HTTP delivery is unavailable pending verified account binding. Longer room-recording acceptance, actual service/Sheets activation and public hosting remain pending. File replay is the implemented source; independent room-microphone capture belongs to Phase 6. Direct booth feeds and dual-feed work are deferred optional enhancements. Do not implement later phases merely because they appear in the roadmap.
 
+Phase 5 foundation steps 1-5 software is implemented: private activity contracts/labels, fresh read-only source validation, trial preparation, bounded PCM features, explicit quiet candidates, independent/synthetic evaluation and private inspection reports. Acoustic validation remains pending; steps 6-8 calibration and richer inference remain future work. Read the active Phase 5 plan, feature/quiet/evaluation/report guides and contracts before extending these artifacts; preserve the separate song-evaluation schema and synthetic/independent reference distinction. Existing-bundle verification checks internal consistency and does not freshly verify source audio. Retained evaluation verification checks bound observation correspondence without rerunning matching or proving optimality.
+
 ## Core rules
 
 - SQLite is authoritative. Preserve original audio, raw outcomes, failed attempts, saved resolution snapshots and earlier conclusions. Derived/reviewed analyses create explicit lineage; never silently replace evidence.
@@ -33,6 +35,7 @@ The [detailed development contracts](docs/development-contracts.md) retain the s
 | Reviewed conclusions and history | [Revisions](docs/revisions.md), [history](docs/history.md) |
 | Views, web, publication, Sheets | [Views](docs/views.md), [HTTP/browser](docs/web-view.md), [publication](docs/publication.md), [Sheets](docs/sheets.md), [operating limits](docs/phase-3-operating-limits.md) |
 | Catalog review, playlist delivery and song links | [Music outputs](docs/music-outputs.md), [service capabilities](docs/phase-4-capabilities.md), [verification](docs/phase-4-verification.md) |
+| Activity labels and audio evidence | [Activity guide](docs/activity-labels.md), [PCM features](docs/audio-features.md), [quiet candidates](docs/quiet-regions.md), [activity evaluation](docs/activity-evaluation.md), [boundary matching](docs/activity-boundary-matching.md), [private report](docs/activity-report.md), [contracts](docs/activity-contracts.md), [trial checklist](docs/phase-5-trial-checklist.md), [Phase 5 plan](docs/phase-5-plan.md) |
 | Performance or storage | [Benchmarks](docs/benchmarks.md), [storage decision](docs/decisions/release-c-storage.md), [operating guidance](docs/release-c-operating-limits.md) |
 
 ## Working practices

@@ -1,0 +1,16 @@
+{
+  "description": "Hand-calculated centered 8-bit PCM amplitudes. Two frames per window unless overridden. Positive policy enter=1/10000, exit=1/100, quiet=4 frames, active=2 frames. Expected regions are [start,count,entry confirmation,exit confirmation,entry censored,exit censored]; pending entries are [start,count]. Synthetic arithmetic only.",
+  "cases": [
+    {"name":"operational-positive", "samples":[64,64,0,0,0,0,64,64], "regions":[[2,4,6,8,false,false]], "pending":[]},
+    {"name":"short-gap", "samples":[64,64,0,0,64,64], "regions":[], "pending":[]},
+    {"name":"left-and-right-censored", "samples":[0,0,0,0,0], "regions":[[0,5,4,null,true,true]], "pending":[]},
+    {"name":"pending-eof", "samples":[64,64,0], "regions":[], "pending":[[2,1]]},
+    {"name":"partial-tail-confirms", "samples":[64,64,0,0,0], "minimum_quiet_frames":3, "regions":[[2,3,5,null,false,true]], "pending":[]},
+    {"name":"partial-high-tail-unconfirmed", "samples":[0,0,0,0,64], "regions":[[0,5,4,null,true,true]], "pending":[]},
+    {"name":"repeated-occurrences", "samples":[0,0,0,0,64,64,0,0,0,0,64,64], "regions":[[0,4,4,6,true,false],[6,4,10,12,false,false]], "pending":[]},
+    {"name":"zero-enter-never-enters", "samples":[0,0,0,0,0], "enter_mean_square":{"numerator":0,"denominator":1}, "regions":[], "pending":[]},
+    {"name":"neutral-cancels-entry", "samples":[0,0,2,2,0,0], "enter_mean_square":{"numerator":1,"denominator":4096}, "exit_mean_square":{"numerator":1,"denominator":64}, "regions":[], "pending":[[4,2]]},
+    {"name":"neutral-cancels-exit", "samples":[0,0,0,0,64,64,16,16,64,64], "enter_mean_square":{"numerator":1,"denominator":4096}, "exit_mean_square":{"numerator":1,"denominator":64}, "minimum_active_frames":4, "regions":[[0,10,4,null,true,true]], "pending":[]},
+    {"name":"neutral-exit-equality-retained", "samples":[0,0,0,0,16,16], "enter_mean_square":{"numerator":1,"denominator":4096}, "exit_mean_square":{"numerator":1,"denominator":64}, "regions":[[0,6,4,null,true,true]], "pending":[]}
+  ]
+}
