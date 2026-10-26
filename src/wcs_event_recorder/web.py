@@ -3,6 +3,7 @@
 import json
 import re
 from importlib.resources import files
+from pathlib import Path
 from threading import BoundedSemaphore
 
 from fastapi import FastAPI, Request
@@ -63,7 +64,7 @@ def _parameters(request, default_limit):
 
 
 def create_app(selection, *, page_limit=50, poll_seconds=5, stale_seconds=30,
-               max_concurrency=4, clock=None):
+               max_concurrency=4, clock=None, links_manifest=None):
     """Validate once at startup; project each request in its own fresh snapshot.
 
     The admission budget covers projection and materialization, never a socket
@@ -76,9 +77,14 @@ def create_app(selection, *, page_limit=50, poll_seconds=5, stale_seconds=30,
     if stale_seconds < poll_seconds or (clock is not None and not callable(clock)):
         raise ViewError('invalid web configuration')
     validate_selection(selection)
+    try:
+        links_path = None if links_manifest is None else Path(links_manifest).resolve()
+    except (TypeError, ValueError, OSError) as exc:
+        raise ViewError('invalid web configuration') from exc
     app = FastAPI(debug=False, docs_url=None, redoc_url=None, openapi_url=None,
                   redirect_slashes=False)
     slots = BoundedSemaphore(max_concurrency)
+    links_slots = BoundedSemaphore(max_concurrency)
 
     @app.middleware('http')
     async def guarded(request, call_next):
@@ -104,6 +110,10 @@ def create_app(selection, *, page_limit=50, poll_seconds=5, stale_seconds=30,
             return _error(400)
         try:
             data = files('wcs_event_recorder').joinpath('web_assets', filename).read_bytes()
+            if filename == 'index.html' and links_path is not None:
+                data, count = re.subn(rb'<html\b', b'<html data-music-links="api/v1/music-links"', data, count=1)
+                if count != 1:
+                    return _error(503)
         except OSError:
             return _error(503)
         return Response(data, media_type=media_type)
@@ -126,6 +136,29 @@ def create_app(selection, *, page_limit=50, poll_seconds=5, stale_seconds=30,
             return _error(400)
         return _json({'schema_version': 1, 'poll_seconds': poll_seconds,
                       'stale_seconds': stale_seconds, 'page_limit': page_limit, 'mode': 'database'})
+
+    if links_path is not None:
+        @app.api_route('/api/v1/music-links', methods=['GET', 'HEAD'])
+        async def music_links(request: Request):
+            if request.scope.get('query_string'):
+                return _error(400)
+            if not links_slots.acquire(blocking=False):
+                return _error(503)
+            try:
+                def materialize_links():
+                    from .music_links import load_music_links
+                    # A small fresh projection provides the same selection and
+                    # ownership generation used by the separately fetched page.
+                    generation = project_view(selection, limit=1)['generation']
+                    return load_music_links(links_path, expected_generation=generation,
+                                            now=None if clock is None else clock())
+                try:
+                    report = await run_in_threadpool(materialize_links)
+                except Exception:
+                    return _error(503)
+            finally:
+                links_slots.release()
+            return _json(report)
 
     @app.api_route('/api/v1/view', methods=['GET', 'HEAD'])
     @app.api_route('/api/v1/plays', methods=['GET', 'HEAD'])

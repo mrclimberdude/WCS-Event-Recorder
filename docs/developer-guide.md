@@ -19,6 +19,12 @@ flowchart TD
     Views --> Web["Local HTTP/mobile page"]
     Views --> Publication["Exclusive metadata snapshot"]
     Views --> Sheets["Optional Sheets publisher + separate state"]
+    DB --> Music["Frozen full closed history + saved identities"]
+    Music --> Catalog["Bounded catalog metadata + explicit review"]
+    Catalog --> Plan["Offline playlist plan + independent delivery state"]
+    Catalog --> Links["Expiring approved song links"]
+    Links --> Web
+    Links --> Publication
 ```
 
 Recognition/output calls occur outside database transactions. Raw results commit before derivation; only closed plays persist. Readers use short consistent read-only snapshots. Independent live capture is future work behind the source contract; file replay does not establish capture resilience.
@@ -29,7 +35,7 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 
 | Responsibility | Modules |
 | --- | --- |
-| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py` |
+| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py`, `cli_music.py` |
 | Source and time contracts | `models.py`, `inputs.py`, `audio.py`, `replay.py`, `windows.py`, `audio_preparation.py` |
 | Recognition and derived conclusions | `recognition.py`, `audd.py`, `resolution.py`, `aggregation.py`, `attribution.py`, `analysis.py` |
 | Durable commits and frozen evidence | `storage.py`, `schema.py`, `run_store.py`, `persistence.py`, `attribution_store.py`, `evidence.py`, `read_evidence.py`, `lineage.py` |
@@ -37,6 +43,8 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 | Reprocessing, recovery and checkpoints | `reprocessing.py`, `recovery.py`, `recovery_plan.py`, `recovery_store.py`, `saved_recovery.py`, `collection_analysis.py`, `checkpoints.py`, `checkpoint_io.py`, `missing_plan.py`, `missing_recovery.py`, `missing_store.py` |
 | Review and reports | `revisions.py`, `comparison.py`, `diagnostics.py`, `evaluation.py`, `history.py`, `run_output.py`, `codecs.py` |
 | Safe views and optional outputs | `views.py`, `view_runtime.py`, `view_config.py`, `web.py`, packaged `web_assets/`, `publication.py`, `sheets.py`, `sheets_state.py`, `output_paths.py` |
+| Catalog selection and review | `music_selection.py`, `music_catalog.py`, `catalog_review.py`, `catalog_transport.py`, `catalog_spotify.py`, `catalog_apple.py` |
+| Playlist plans, delivery and links | `playlist_plan.py`, `playlist_delivery.py`, `playlist_state.py`, `playlist_http.py`, `music_links.py`, `music_publication.py`; [contracts/capability limits](music-outputs.md) |
 
 `tests/` mirrors these contracts and includes real SQLite locks/commits, fault injection, legacy migrations, synthetic CLI acceptance and optional Chromium checks. `scripts/recorder_benchmarks/` supplies frozen compatibility evidence and bounded resource probes. Private/generated artifacts belong under ignored `data/`.
 
@@ -59,6 +67,7 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 | Expected context | Schedule-derived session/DJ attribution, including ambiguity; not independently observed actual activity |
 | View generation / observation key | Selection identity used to reset browser state / saved recognition identity used to expire unchanged hints; neither proves writer liveness |
 | Publication / delivery state | Immutable metadata-only artifact / separate output bookkeeping, never core recording evidence |
+| Output mapping / playlist plan | Explicit reviewed service recording decision / frozen deduplicated listening sequence with every source occurrence explained; neither changes canonical recognition identity |
 
 ## Verification
 

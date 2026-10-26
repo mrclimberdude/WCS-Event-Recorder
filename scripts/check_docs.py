@@ -18,7 +18,7 @@ HISTORICAL_PLANS = frozenset({
     'phase-2-step-2-plan.md', 'phase-2-step-3a-plan.md', 'phase-2-step-3b-plan.md',
     'phase-2-step-3b2a-plan.md', 'phase-2-step-3b-remaining-plan.md',
     'phase-2-step-3c-plan.md', 'phase-2-completion-plan.md',
-    'performance-maintainability-plan.md', 'release-c-plan.md', 'phase-3-plan.md',
+    'performance-maintainability-plan.md', 'release-c-plan.md', 'phase-3-plan.md', 'phase-4-plan.md',
 })
 
 

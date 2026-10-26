@@ -60,7 +60,7 @@ def test_cli_drift_reports_source_line(tmp_path, command, reason):
 
 def test_historical_plans_keep_link_checks_and_exclude_proposed_commands(tmp_path):
     page(tmp_path, 'README.md', '# Current\n')
-    page(tmp_path, 'docs/phase-3-plan.md', '[broken](missing.md)\n```powershell\nwcs-recorder hypothetical-command\n```\n')
+    page(tmp_path, 'docs/phase-4-plan.md', '[broken](missing.md)\n```powershell\nwcs-recorder hypothetical-command\n```\n')
     page(tmp_path, 'docs/implementation-plan.md', '```powershell\nwcs-recorder hypothetical-command\n```\n')
     report = checker.check(tmp_path)
     assert report['historical_cli_exclusions'] == 1
@@ -70,7 +70,7 @@ def test_historical_plans_keep_link_checks_and_exclude_proposed_commands(tmp_pat
 
 
 def test_new_plans_are_checked_until_explicitly_recorded_as_completed(tmp_path):
-    page(tmp_path, 'docs/phase-4-plan.md', '```powershell\nwcs-recorder hypothetical-command\n```\n')
+    page(tmp_path, 'docs/phase-5-plan.md', '```powershell\nwcs-recorder hypothetical-command\n```\n')
     report = checker.check(tmp_path)
     assert report['historical_cli_exclusions'] == 0
     assert len(report['errors']) == 1 and 'unknown command' in report['errors'][0]

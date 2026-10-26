@@ -20,7 +20,7 @@ Take a prerecorded event sample and process it end-to-end as if it were happenin
 
 ## Roadmap and current priorities
 
-Phases 1?3 software is implemented within its supported scope: file-based recognition/evidence, reliable local recovery/correction and metadata views/optional outputs. The [status page](status.md) identifies the latest full verification baseline and pending operational gates. The [active roadmap](implementation-plan.md) defines all six phases; the [operator walkthrough](operator-guide.md) connects the commands from a private recording through review and a local page.
+Phases 1-4 software is implemented within documented capability limits: file-based recognition/evidence, reliable local recovery/correction, metadata views and optional catalog/playlist outputs. Spotify delivery is mock-verified; Apple HTTP publishing is unavailable pending verified account binding. The [status page](status.md) identifies the latest full verification and pending operational gates. The [active roadmap](implementation-plan.md) defines all six phases; the [operator walkthrough](operator-guide.md) and [music-output guide](music-outputs.md) connect the available commands.
 
 The next acceptance priority is a longer representative room-microphone recording with independent labels/activity observations and declared request, storage, latency and memory budgets. Existing synthetic checks and the short livestream baseline do not establish room accuracy or event capacity. See [trial readiness](phase-2-trial-readiness.md).
 
@@ -105,7 +105,7 @@ The [Phase 3 execution plan](phase-3-plan.md) has all eight software steps imple
 
 - **Website:** implemented local/mobile recorded history, latest saved recognition, replay controls and static publication artifacts; no attendee login. Public activation and richer ongoing-song/filter behavior remain future work.
 - **Google Sheets:** optional bounded operational snapshot with song, recording time, expected context and uncertainty, using explicit destination ownership and independent retries. Actual activation is pending; it is never authoritative.
-- **Spotify and Apple Music:** optional catalog matching and playlist destinations. Resolve canonical tracks to service IDs, account for remixes/edits and ambiguous matches, and avoid automatically publishing questionable matches. Attendees receive public playlist links without authenticating with this application.
+- **Spotify and Apple Music:** implemented bounded catalog search/lookup, explicit version review, reproducible playlist plans and approved song links. Output mappings stay separate from canonical recognition identities. Spotify delivery uses supplied operator tokens and durable independent state; Apple HTTP delivery and public playlist-link export remain unavailable. Account/service acceptance is pending. See [music outputs](music-outputs.md).
 
 ## Constraints and deferred decisions
 
@@ -113,4 +113,4 @@ Prioritize a standalone room microphone, recorder/computer, power and local stor
 
 Analyze event recordings, without using Spotify or Apple Music streams as fingerprinting or ML inputs. Do not distribute raw ballroom audio or embed full music playback in the initial app. Public outputs are metadata and outbound platform links.
 
-Hardware acquisition and sample recording may proceed; choose dedicated deployment hardware using measured single-room power, storage and reliability requirements. Defer line-input interfaces and venue adapters, dual-feed acquisition/synchronization/reconciliation, automated schedule scraping, heat inference, speech models, advanced bumper classification, cloud activation, playlist authentication, exact retention periods, and further database migration until evidence justifies them. Phase 2 correction/report software is complete; longer room-recording acceptance remains pending alongside the verified local Phase 3 workflow.
+Hardware acquisition and sample recording may proceed; choose dedicated deployment hardware using measured single-room power, storage and reliability requirements. Defer line-input interfaces and venue adapters, dual-feed acquisition/synchronization/reconciliation, automated schedule scraping, heat inference, speech models, advanced bumper classification, cloud activation, automatic OAuth/refresh and Apple account binding, exact retention periods, and further database migration until evidence justifies them. Phases 2-4 have supported local software workflows; longer room-recording and actual external-output acceptance remain pending.

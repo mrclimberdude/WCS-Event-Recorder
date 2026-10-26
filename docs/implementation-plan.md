@@ -9,7 +9,7 @@ This is the active six-phase roadmap. Use [status](status.md) for current capabi
 | 1. Short file-based proof of concept | Software implemented; bounded private baseline trial complete | Recognition and provisional song/context history with preserved evidence |
 | 2. Reliable local processing and correction | Software implemented; representative longer acceptance pending | Diagnostics, reconstruction/recovery, scoped review, exact PCM preparation and local reports |
 | 3. Attendee and operational views | Software implemented; real output activation gated | Safe local/mobile views, explicit metadata publication and optional Sheets mirror |
-| 4. Optional playlist destinations | Planned | Backend-owned Spotify/Apple Music matching and duplicate-safe playlist updates |
+| 4. Optional playlist destinations | Software implemented within capability limits; account acceptance pending | Reviewed Spotify/Apple catalog links and deterministic plans; mock-verified Spotify delivery |
 | 5. Richer event inference | Planned | Measured audio/MC evidence for boundaries, heat reconstruction and classification |
 | 6. Independent live capture and event trial | Planned | One retained room-microphone source with resilient recording and measured event operation |
 
@@ -81,7 +81,9 @@ The [post-completion fixes](phase-3-review-fixes.md) close malformed Sheets-read
 
 ## Phase 4: optional playlist destinations
 
-Evaluate Spotify/Apple Music catalog and authentication requirements at implementation time. Add independent matching/export adapters, explicit version matching and ambiguity review, and duplicate-safe playlist updates. Publish licensed-platform links; keep platform authentication in backend operations and the canonical dataset independent of either service. Full music playback and attendee account requirements are outside the initial app scope.
+Frozen full-history selection, bounded Spotify/Apple catalog reads, explicit per-identity review, explainable playlist dry runs and expiring song links are implemented outside recognition evidence. Spotify delivery verifies ownership and fresh targets, journals every mutation and reconciles complete readback. Apple has mock-tested fresh-empty snapshot semantics, but HTTP delivery remains unavailable until stable account binding is implemented. Both services require separately authorized real account acceptance. See [capabilities](phase-4-capabilities.md).
+
+The [Phase 4 execution ledger](phase-4-plan.md#software-execution-ledger) records delivery across all nine steps and conservative refinements. Use [music outputs](music-outputs.md) for installed commands and [verification](phase-4-verification.md) for measured software checks. Public-playlist-link export, automatic OAuth/refresh and Apple HTTP mutation remain unavailable. Full playback, attendee service accounts, actual destination activation and hosting are separate from the implemented offline/local workflow.
 
 ## Phase 5: richer event inference
 

@@ -1,5 +1,7 @@
 # Local read-only music view
 
+This guide describes the default Phase 3 surface. [Optional approved song links](music-outputs.md#approved-song-links-in-local-or-static-views) use an explicitly configured companion and separate commands; unconfigured views retain this contract.
+
 The optional `web` installation extra provides a FastAPI/Uvicorn adapter and packaged HTML, JavaScript and CSS. The server consumes one explicit private `ViewSelection`; neither URLs nor browser controls can select a database, analysis, file or audio source. It serves saved music metadata and makes no recognition requests. This local surface does not establish acoustic accuracy, current music, writer liveness or public-event readiness.
 
 Install with `.\.venv\Scripts\python.exe -m pip install -e '.[dev,web]'`. See the CLI help and [view contract](views.md) for explicit selection and private-preview requirements. The CLI defaults to loopback; choosing another interface exposes the selected metadata to clients that can reach that interface. There are no accounts, correction controls, uploads or audio playback endpoints.

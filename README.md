@@ -2,7 +2,7 @@
 
 Build a searchable record of music played at a West Coast Swing event, including estimated song times, room, DJ and competition or social context. The local mobile page shows saved metadata without requiring attendee accounts.
 
-Phases 1-3 software is implemented: file replay/recognition, preserved SQLite evidence, recovery, reviewed corrections, local views and optional metadata outputs. Representative room-recording acceptance and real external-output activation remain pending. See **[current status and verification](docs/status.md)** and the [six-phase roadmap](docs/implementation-plan.md).
+Phases 1-4 software is implemented within documented capability limits: file replay/recognition, preserved SQLite evidence, recovery, reviewed corrections, local views, catalog review, playlist plans and optional metadata outputs. Spotify delivery is mock-verified; Apple HTTP delivery is unavailable. Representative room-recording acceptance and real external-output activation remain pending. See **[current status and verification](docs/status.md)** and the [six-phase roadmap](docs/implementation-plan.md).
 
 The capture baseline is one room microphone, without a DJ-booth connection. Software currently processes saved files; independent capture remains Phase 6. Dual-feed work is deferred.
 
@@ -14,6 +14,7 @@ The capture baseline is one room microphone, without a DJ-booth connection. Soft
 | Process and review my own recording | [Operator walkthrough](docs/operator-guide.md) |
 | Diagnose a failure or choose recovery | [Recovery chooser](docs/operator-guide.md#choose-a-recovery-operation) |
 | Open the local page or use a phone | [View runbook](docs/phase-3-deployment.md) |
+| Review Spotify/Apple matches, plan playlists or show song links | [Music outputs](docs/music-outputs.md) |
 | Understand capabilities and remaining work | [Status](docs/status.md), [overview](docs/project-overview.md), [roadmap](docs/implementation-plan.md) |
 | Find a contract or historical design | [Documentation index](docs/index.md) |
 | Work on the code | [Developer guide](docs/developer-guide.md), [AGENTS.md](AGENTS.md) |

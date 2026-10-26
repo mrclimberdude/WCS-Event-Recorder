@@ -11,6 +11,7 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Recover a failure or incomplete recording analysis | [Recovery chooser](operator-guide.md#choose-a-recovery-operation) |
 | Use local/mobile views or prepare metadata outputs | [View/deployment runbook](phase-3-deployment.md) |
 | Prepare a representative room trial | [Trial readiness](phase-2-trial-readiness.md), [acceptance](evaluation.md#room-recording-acceptance) |
+| Review catalog links or plan/deliver playlists | [Music outputs](music-outputs.md), [capability limits](phase-4-capabilities.md) |
 | Understand or change the implementation | [Developer map/glossary](developer-guide.md), [AGENTS.md](../AGENTS.md), [detailed contracts](development-contracts.md) |
 | Maintain these pages | [Documentation rules and checker](documentation.md) |
 
@@ -24,6 +25,7 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Reprocessing and review | [Offline reprocessing](reprocessing.md), [reviewed identity/schedule revisions](revisions.md) |
 | Recovery | [Selected errors](recovery.md), [complete saved grid](saved-recovery.md), [saved prefix](prefix-recovery.md), [incomplete collections](collection-analysis.md), [checkpoints](checkpoints.md), [missing suffix](missing-recovery.md) |
 | Metadata outputs | [Safe projection/runtime](views.md), [HTTP/browser](web-view.md), [publication/withdrawal](publication.md), [Sheets](sheets.md) |
+| Music outputs | [Catalog review, playlist plans/delivery and links](music-outputs.md), [capabilities](phase-4-capabilities.md), [Phase 4 execution ledger](phase-4-plan.md#software-execution-ledger), [verification](phase-4-verification.md) |
 | Operations and capacity | [View runbook](phase-3-deployment.md), [view resource envelope](phase-3-operating-limits.md), [benchmarks](benchmarks.md), [storage limits](release-c-operating-limits.md), [trial readiness](phase-2-trial-readiness.md) |
 
 ## Historical plans and verification
@@ -38,5 +40,6 @@ These completed plans retain their original requirements, proposed names, measur
 | Consolidation releases A/B/C | [Consolidation plan and verification](performance-maintainability-plan.md), [Release C execution](release-c-plan.md), [dependency inventory](release-c-dependency-inventory.md), [measurements](release-c-measurements.md), [keep-current decision](decisions/release-c-storage.md) |
 | Phase 2 completion | [Execution ledger and verification](phase-2-completion-plan.md) |
 | Phase 3 completion | [Execution ledger and verification](phase-3-plan.md), [post-completion fixes](phase-3-review-fixes.md) |
+| Phase 4 supported software completion | [Execution ledger](phase-4-plan.md), [verification](phase-4-verification.md); current [capabilities](phase-4-capabilities.md) identify live/unsupported branches |
 
 Local `data/` artifacts cited by records are ignored/private and may not exist in another checkout. Retain original artifacts when reproducing a measurement; a record of a past passing gate is not a fresh verification of the current checkout. The [status page](status.md#verification-baseline) identifies the latest full application baseline.

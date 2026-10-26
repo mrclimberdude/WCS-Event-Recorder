@@ -1,5 +1,7 @@
 # Private selection and static metadata publications
 
+This guide defines schema-1 metadata bundles. [Opt-in song-link publications](music-outputs.md#approved-song-links-in-local-or-static-views) use separate schema-2 build/verify/withdraw commands and an explicit `links.json` member; existing schema-1 file closure is unchanged.
+
 Private operator selection and public snapshots are separate artifacts. `ViewConfiguration` binds one database/workspace and run, explicit public event/room labels, preview mode and finite page/refresh settings. Its saved JSON contains private paths and identifiers and must stay private. No newer run, reviewed branch or checkpoint is selected automatically. An original-to-reviewed switch requires a new explicit configuration and produces a separate public snapshot.
 
 `publication.build_publication(configuration, output_directory, expires_at=..., generated_at=None)` performs full selection validation, then a separate fresh bounded projection. It accepts successful completed and supported `completed_partial` analyses, preserving partial coverage and censoring. Private previews and unsuccessful/unconfirmed analyses are refused. It reads no source audio and makes no recognition requests or database writes.

@@ -4,7 +4,7 @@
 
 Read [current status](docs/status.md), the [overview](docs/project-overview.md) and the [active roadmap](docs/implementation-plan.md) before substantial changes. Use the [developer guide](docs/developer-guide.md) for module ownership, terminology and checks, and the [documentation index](docs/index.md) for feature contracts and historical designs.
 
-Phases 1-3 software is implemented within documented scope. Longer room-recording acceptance, actual Sheets activation and public hosting remain pending. File replay is the implemented source; independent room-microphone capture belongs to Phase 6. Direct booth feeds and dual-feed work are deferred optional enhancements. Do not implement later phases merely because they appear in the roadmap.
+Phases 1-4 software is implemented within documented scope/capabilities. Spotify delivery is mock-verified; Apple HTTP delivery is unavailable pending verified account binding. Longer room-recording acceptance, actual service/Sheets activation and public hosting remain pending. File replay is the implemented source; independent room-microphone capture belongs to Phase 6. Direct booth feeds and dual-feed work are deferred optional enhancements. Do not implement later phases merely because they appear in the roadmap.
 
 ## Core rules
 
@@ -32,6 +32,7 @@ The [detailed development contracts](docs/development-contracts.md) retain the s
 | Recovery or checkpoints | [Recovery chooser](docs/operator-guide.md#choose-a-recovery-operation), then its mode-specific contract |
 | Reviewed conclusions and history | [Revisions](docs/revisions.md), [history](docs/history.md) |
 | Views, web, publication, Sheets | [Views](docs/views.md), [HTTP/browser](docs/web-view.md), [publication](docs/publication.md), [Sheets](docs/sheets.md), [operating limits](docs/phase-3-operating-limits.md) |
+| Catalog review, playlist delivery and song links | [Music outputs](docs/music-outputs.md), [service capabilities](docs/phase-4-capabilities.md), [verification](docs/phase-4-verification.md) |
 | Performance or storage | [Benchmarks](docs/benchmarks.md), [storage decision](docs/decisions/release-c-storage.md), [operating guidance](docs/release-c-operating-limits.md) |
 
 ## Working practices
