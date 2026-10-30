@@ -27,7 +27,7 @@ flowchart TD
     Links --> Publication
 ```
 
-Recognition/output calls occur outside database transactions. Raw results commit before derivation; only closed plays persist. Readers use short consistent read-only snapshots. Independent live capture is future work behind the source contract; file replay does not establish capture resilience.
+Recognition/output calls occur outside database transactions. Raw results commit before derivation; only closed plays persist. Readers use short consistent read-only snapshots. The separate [supervised recorder](microphone-capture.md) writes finalized WAVs and immutable capture sidecars, then explicitly seals reviewed-clock manifests for this existing file pipeline. It does not stream into recognition or change fixed-length source contracts. The [prototype hardware](prototype-hardware.md), [setup guide](pi-setup.md) and [first-capture plan](pi-bring-up-plan.md) separate synthetic software checks from pending Linux/Pi acceptance and later live coordination.
 
 ## Module map
 
@@ -35,8 +35,9 @@ Paths below are relative to `src/wcs_event_recorder/`. Start at the coordinating
 
 | Responsibility | Modules |
 | --- | --- |
-| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py`, `cli_music.py`, `cli_activity.py` |
+| CLI registration and routing | `cli.py`, `cli_parser.py`; handlers in `cli_processing.py`, `cli_inspection.py`, `cli_output.py`, `cli_recovery.py`, `cli_phase2.py`, `cli_views.py`, `cli_music.py`, `cli_activity.py`, `cli_capture.py` |
 | Source and time contracts | `models.py`, `inputs.py`, `audio.py`, `replay.py`, `windows.py`, `audio_preparation.py` |
+| Supervised capture and Pi setup | `capture_config.py`, `capture_preflight.py`, `capture_process.py`, `capture.py`, `capture_artifacts.py`, `capture_sealing.py`; ordinary-user installer in `deploy/pi/`; [capture contract](microphone-capture.md) |
 | Recognition and derived conclusions | `recognition.py`, `audd.py`, `resolution.py`, `aggregation.py`, `attribution.py`, `analysis.py` |
 | Durable commits and frozen evidence | `storage.py`, `schema.py`, `run_store.py`, `persistence.py`, `attribution_store.py`, `evidence.py`, `read_evidence.py`, `lineage.py` |
 | Shared collection and write guards | `collection_dispatch.py`, `write_progress.py`, `methods.py`; collection-specific stores remain separate |

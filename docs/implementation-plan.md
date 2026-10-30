@@ -11,9 +11,9 @@ This is the active six-phase roadmap. Use [status](status.md) for current capabi
 | 3. Attendee and operational views | Software implemented; real output activation gated | Safe local/mobile views, explicit metadata publication and optional Sheets mirror |
 | 4. Optional playlist destinations | Software implemented within capability limits; account acceptance pending | Reviewed Spotify/Apple catalog links and deterministic plans; mock-verified Spotify delivery |
 | 5. Richer event inference | Foundation steps 1-5 software implemented; acoustic validation and steps 6-8 pending | Independent activity references and PCM measurements first, then measured audio/MC evidence for boundaries, heats and classification |
-| 6. Independent live capture and event trial | Planned | One retained room-microphone source with resilient recording and measured event operation |
+| 6. Independent live capture and event trial | Scoped supervised recorder software implemented; Linux/Pi acceptance and live coordination pending | One retained room-microphone source with resilient recording and measured event operation |
 
-Hardware acquisition and external room-sample recording may proceed now. Direct DJ-booth feeds and dual-feed acquisition, synchronization, switching and reconciliation are optional deferred work, not acceptance requirements for the single-room baseline.
+Hardware acquisition and room-sample recording may proceed now. The owner has selected the [Pi 5 microphone/SSD prototype](prototype-hardware.md); the Pi is awaiting delivery. The [Pi setup and first-capture plan](pi-bring-up-plan.md) records the implemented supervised software slice alongside Phase 5's pending sample gates; [installation](pi-setup.md) and [capture](microphone-capture.md) require physical acceptance. Direct DJ-booth feeds and dual-feed acquisition, synchronization, switching and reconciliation are optional deferred work, not acceptance requirements for the single-room baseline.
 
 ## Initial Python stack
 
@@ -95,7 +95,11 @@ Step 3 implements the all-width PCM fixture matrix and shared before/after sourc
 
 ## Phase 6: live capture and event trial
 
-Add one room-microphone source through the shared timestamped chunk contract, private local lossless retention and resilience to recognition/network/output failure. Hardware acquisition can precede this implementation. Choose dedicated devices using measured single-room power, storage, memory and latency requirements.
+Add one room-microphone source through the shared timestamped chunk contract, private local lossless retention and resilience to recognition/network/output failure. The selected [hardware](prototype-hardware.md) is a Pi 5 (4 GB), Polsen US-OB-55 USB boundary microphone, 500 GB USB SSD, 128 GB high-endurance microSD, HighPi Pro 5S case, official Active Cooler and official 27W supply. Validate this configuration against measured single-room power, storage, memory and latency requirements; selection is not hardware acceptance.
+
+The [Pi setup and first-capture slice](pi-bring-up-plan.md) implements installation/configuration support, storage/clock/device preflight, an explicit microphone probe, finite foreground capture with exact PCM WAV rotation, bounded clean-stop draining and reviewed-clock sealing. Read [setup](pi-setup.md) and the [capture contract](microphone-capture.md). Software verification uses synthetic processes and mounted-storage facts; actual Linux/Pi installation, device formats and recording-clock accuracy still require physical verification. This slice proceeds alongside pending Phase 5 independent recording/calibration and preserves existing fixed-length file-source contracts. Standard PCM WAV is supported; the handoff's FLAC example is not a supported input format.
+
+The first slice ends at sealed recordings and a manual single-file offline handoff. Automatic startup/recovery, independent live analysis/backfill, whole-session recognition across rotated files, health UI and event endurance remain subsequent Phase 6 work. Exact global frame mappings must survive rotation so the later adapter can preserve recognition windows and song occurrences across file boundaries.
 
 Initial event acceptance must demonstrate:
 
@@ -109,4 +113,4 @@ Any eventual mixer feed must be a passive branch, never inline with the PA. Dire
 
 ## Decisions to postpone
 
-Keep cloud hosting activation/provider, PostgreSQL migration, frontend framework, queue/broker, dedicated device selection, exact capture chunk duration/retention policy, transcription model and automatic schedule scraping open until the relevant phase or measurements justify a decision. Additional codecs/resampling require their own explicit decoded-clock contract; they are not implicitly supported by PCM preparation.
+Keep cloud hosting activation/provider, PostgreSQL migration, frontend framework, queue/broker, additional hardware, final capture chunk duration/retention policy, transcription model and automatic schedule scraping open until the relevant phase or measurements justify a decision. The initial prototype components are selected; their suitability is unverified. Additional codecs/resampling require their own explicit decoded-clock contract; they are not implicitly supported by PCM preparation.

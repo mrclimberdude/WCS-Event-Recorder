@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "bench-event",
+  "room_id": "bench-room",
+  "timezone": "America/New_York",
+  "device": "hw:CARD=PLACEHOLDER,DEV=0",
+  "mount_path": "/mnt/wcs-audio",
+  "filesystem_uuid": "PLACEHOLDER-SSD-FILESYSTEM-UUID",
+  "recording_root": "/mnt/wcs-audio/recordings",
+  "sample_rate": 48000,
+  "channels": 1,
+  "sample_format": "S16_LE",
+  "chunk_seconds": 600,
+  "session_seconds": 1200,
+  "max_audio_bytes": 115200000,
+  "reserve_bytes": 2147483648
+}

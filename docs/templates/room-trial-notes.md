@@ -17,12 +17,17 @@ Copy this template into a fresh directory under ignored `data/`; fill every unkn
 
 - Actual device/microphone identifiers, firmware and recorder software:
 - Actual connections, power, storage medium:
+- Selected prototype deviations, if any (see [hardware guide](../prototype-hardware.md)):
+- OS image / architecture / Python / application revision / ALSA version:
+- Microphone USB/ALSA identity / requested versus actual negotiated format:
+- SSD filesystem UUID / mount / usable capacity / write-permission check:
 - Placement, orientation, height and distance to speakers/activity:
 - Settings and gain as recorded; automatic gain/processing enabled or unknown:
 - Format: PCM sample rate / channels / bytes per sample:
 - Environment: crowd, applause, announcements, reverberation and interference:
 - Listening or rail-hit observations (rail hits are not guaranteed clipping):
 - Interruptions, missing-file evidence or other failures:
+- For laptop-speaker trials: player/speaker volume, distance and playback pauses/rebuffer/reconnect observations:
 
 ## Recording clock and source binding
 
@@ -33,6 +38,8 @@ Copy this template into a fresh directory under ignored `data/`; fill every unkn
 - Before-recording independent clock observation / recorder time or source-frame anchor / uncertainty:
 - After-recording independent clock observation / recorder time or source-frame anchor / uncertainty:
 - How anchors were observed; clock agreement/drift measured or still unproven:
+- Host capture clock versus event clock (stream delay/uncertainty and independent venue-clock-to-frame anchors, if applicable):
+- Capture session/chunk IDs / exact session frame ranges / known gaps:
 - Manifest path / digest:
 - Prepared-source IDs, hashes and retained original-frame/clock mappings, if any:
 

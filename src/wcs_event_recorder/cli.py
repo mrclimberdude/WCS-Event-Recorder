@@ -12,7 +12,7 @@ from .recognition import RecognitionStopped
 from .run_output import RunOutputError
 from .storage import StorageError
 from .windows import WindowStreamError
-from . import cli_inspection, cli_processing, cli_recovery, cli_phase2, cli_views, cli_music, cli_activity
+from . import cli_inspection, cli_processing, cli_recovery, cli_phase2, cli_views, cli_music, cli_activity, cli_capture
 from .activity_artifacts import ActivityError
 from .views import ViewError
 from .music_catalog import CatalogError
@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     try:
+        if args.command in cli_capture.COMMANDS:
+            return cli_capture.run(args)
         if args.command in cli_activity.COMMANDS:
             return cli_activity.run(args)
         if args.command in cli_music.COMMANDS:

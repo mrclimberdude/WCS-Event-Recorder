@@ -11,6 +11,7 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Recover a failure or incomplete recording analysis | [Recovery chooser](operator-guide.md#choose-a-recovery-operation) |
 | Use local/mobile views or prepare metadata outputs | [View/deployment runbook](phase-3-deployment.md) |
 | Prepare a representative room trial | [Trial readiness](phase-2-trial-readiness.md), [acceptance](evaluation.md#room-recording-acceptance) |
+| Install the prototype or record a supervised session | [Hardware and requirements](prototype-hardware.md), [Pi setup](pi-setup.md), [capture contract](microphone-capture.md), [first-capture execution plan](pi-bring-up-plan.md); Linux/Pi acceptance pending |
 | Review catalog links or plan/deliver playlists | [Music outputs](music-outputs.md), [capability limits](phase-4-capabilities.md) |
 | Prepare activity labels and prototype recordings | [Activity labels](activity-labels.md), [trial checklist](phase-5-trial-checklist.md), [private notes template](templates/room-trial-notes.md) |
 | Measure private PCM amplitude and energy | [Feature extraction and verification](audio-features.md) |
@@ -23,6 +24,7 @@ Start with [current status](status.md) for what works and what remains unverifie
 | Area | Guides |
 | --- | --- |
 | Source input and replay | [Manifest/schedule formats](input-formats.md), [replay](replay.md), [exact PCM preparation](audio-preparation.md) |
+| Prototype hardware and supervised capture | [Component list/topology/requirements](prototype-hardware.md), [Pi setup](pi-setup.md), [finite capture/sealing](microphone-capture.md), [execution plan](pi-bring-up-plan.md); physical acceptance pending |
 | Recognition and conclusions | [Fixture windows](recognition.md), [AudD uploads](provider-recognition.md), [identities/aggregation](aggregation.md), [expected context](attribution.md) |
 | Durable evidence and inspection | [Persistence](persistence.md), [diagnostics](diagnostics.md), [history](history.md), [independent evaluation](evaluation.md) |
 | Reprocessing and review | [Offline reprocessing](reprocessing.md), [reviewed identity/schedule revisions](revisions.md) |
@@ -46,5 +48,6 @@ These completed plans retain their original requirements, proposed names, measur
 | Phase 2 completion | [Execution ledger and verification](phase-2-completion-plan.md) |
 | Phase 3 completion | [Execution ledger and verification](phase-3-plan.md), [post-completion fixes](phase-3-review-fixes.md) |
 | Phase 4 supported software completion | [Execution ledger](phase-4-plan.md), [verification](phase-4-verification.md); current [capabilities](phase-4-capabilities.md) identify live/unsupported branches |
+| Supervised Pi capture software slice | [Verification](pi-capture-verification.md); the [execution plan](pi-bring-up-plan.md) remains active for pending physical acceptance |
 
 Local `data/` artifacts cited by records are ignored/private and may not exist in another checkout. Retain original artifacts when reproducing a measurement; a record of a past passing gate is not a fresh verification of the current checkout. The [status page](status.md#verification-baseline) identifies the latest full application baseline.

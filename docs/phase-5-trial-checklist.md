@@ -1,8 +1,8 @@
 # Private activity-label trial checklist
 
-Use this checklist with the [private notes template](templates/room-trial-notes.md), [audio preparation](audio-preparation.md) and [independent evaluation](evaluation.md). The [Phase 5 plan](phase-5-plan.md) separates software checks from measured acoustic acceptance. Hardware components and settings have not been selected here: record the actual prototype rather than assuming a microphone, interface, gain or placement.
+Use this checklist with the [private notes template](templates/room-trial-notes.md), [audio preparation](audio-preparation.md) and [independent evaluation](evaluation.md). The [Phase 5 plan](phase-5-plan.md) separates software checks from measured acoustic acceptance. The [hardware guide](prototype-hardware.md) records the selected Pi 5, Polsen USB microphone and SSD; settings, device capabilities, gain and placement still need actual observations.
 
-The baseline is one retained room microphone. Collect samples with existing recorder tools or external equipment. Application-managed live capture and interruption resilience belong to Phase 6; direct booth feeds and dual-feed experiments are deferred optional work. This checklist authorizes no external calls, paid recognition, publication or deployment.
+The baseline is one retained room microphone. Collect samples with existing recorder tools/external equipment or the implemented [supervised recorder](microphone-capture.md) after its actual [Pi setup](pi-setup.md) and physical checks. Automatic capture/recovery and live analysis coordination remain later Phase 6 work; the supervised slice proceeds alongside these sample gates. Direct booth feeds and dual-feed experiments are deferred optional work. This checklist authorizes no external calls, paid recognition, publication or deployment.
 
 ## Prepare a bounded trial
 
@@ -18,6 +18,8 @@ The baseline is one retained room microphone. Collect samples with existing reco
 3. **Home workflow:** use ordinary playback and a separate speaker only when available; note what was actually used. Include quiet gaps, overlapping conversation/music, fades and repeated passages where practical. Describe distance, direction, gain, background noise and acoustic conditions. This checks the workflow, not event accuracy.
 4. **Representative room:** obtain an authorized recording under the actual venue conditions. Record placement/distance, crowd noise, applause, reverberation, announcements and any interference. Keep the same declared recording/session partition. Preserve poor examples and failures as evidence. Do not insert a future device inline with venue audio.
 5. Inspect gain and rail-hit diagnostics alongside listening notes. Rail and near-rail hits are not guaranteed clipping; low energy is not proof of silence. Record uncertainty instead of changing the original or declaring a source identity from its waveform.
+
+For the planned laptop-speaker livestream trial, use the same USB microphone-to-Pi-to-SSD path and record playback volume, distance and placement. Separate device capture time from the event time shown in the stream. Retain any venue-clock-to-audio-frame anchor and its uncertainty; pauses, buffering or reconnects can change the stream delay. Keep new segments/anchors explicit. This trial checks home hardware/workflow, not ballroom acoustics or actual event-context accuracy.
 
 ## Independent labels before algorithm answers
 

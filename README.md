@@ -4,7 +4,7 @@ Build a searchable record of music played at a West Coast Swing event, including
 
 Phases 1-4 software is implemented within documented capability limits: file replay/recognition, preserved SQLite evidence, recovery, reviewed corrections, local views, catalog review, playlist plans and optional metadata outputs. Spotify delivery is mock-verified; Apple HTTP delivery is unavailable. Representative room-recording acceptance and real external-output activation remain pending. See **[current status and verification](docs/status.md)** and the [six-phase roadmap](docs/implementation-plan.md).
 
-The capture baseline is one room microphone, without a DJ-booth connection. Software currently processes saved files; independent capture remains Phase 6. Dual-feed work is deferred.
+The capture baseline is one room microphone, without a DJ-booth connection. The [Pi setup guide](docs/pi-setup.md) and [supervised recorder](docs/microphone-capture.md) provide installation, preflight/probing, finite PCM WAV capture and reviewed-clock sealing. Software checks use synthetic processes; actual Pi/Linux acceptance remains pending. Analysis still consumes completed files; automatic capture/recovery and continuous cross-file recognition remain later work. Dual-feed work is deferred.
 
 ## Start here
 
@@ -16,6 +16,7 @@ The capture baseline is one room microphone, without a DJ-booth connection. Soft
 | Open the local page or use a phone | [View runbook](docs/phase-3-deployment.md) |
 | Review Spotify/Apple matches, plan playlists or show song links | [Music outputs](docs/music-outputs.md) |
 | Prepare independent activity labels and prototype recordings | [Activity labels](docs/activity-labels.md), [trial checklist](docs/phase-5-trial-checklist.md) |
+| Install the Pi prototype or record a finite microphone session | [Hardware](docs/prototype-hardware.md), [Pi setup](docs/pi-setup.md), [capture contract](docs/microphone-capture.md); physical acceptance pending |
 | Measure, detect, evaluate and inspect private activity evidence | [Audio features](docs/audio-features.md), [quiet candidates](docs/quiet-regions.md), [activity evaluation](docs/activity-evaluation.md), [private report](docs/activity-report.md); foundation software implemented, acoustic validation pending |
 | Understand capabilities and remaining work | [Status](docs/status.md), [overview](docs/project-overview.md), [roadmap](docs/implementation-plan.md) |
 | Find a contract or historical design | [Documentation index](docs/index.md) |

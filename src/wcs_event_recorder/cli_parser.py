@@ -398,5 +398,7 @@ def build_parser():
             ('max-annotations', 10_000), ('max-output-bytes', 8_388_608), ('max-seconds', 120)):
         activity.add_argument('--' + name, type=_positive_integer, default=default)
     activity.add_argument('--verbose', action='store_true', default=argparse.SUPPRESS)
+    from .cli_capture import add_commands as add_capture_commands
+    add_capture_commands(commands, _positive_integer)
     return parser, commands.choices
 

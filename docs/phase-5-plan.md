@@ -4,6 +4,8 @@ Status: active execution plan, 2026-10-26. Foundation steps 1-5 software is impl
 
 The [roadmap](implementation-plan.md) defines the six phases; [status](status.md) records implemented capabilities and open acceptance gates. Preserve all completed plans and verification records. Phase 4 account activation, Apple HTTP delivery and public hosting remain separate work.
 
+Hardware update, 2026-10-30: the [Pi 5/Polsen/SSD prototype](prototype-hardware.md) is selected, with the Pi awaiting delivery. The separate [Pi setup and first-capture plan](pi-bring-up-plan.md) records implemented limited Phase 6 software alongside these recording gates; use [setup](pi-setup.md) and the [capture contract](microphone-capture.md). Linux/Pi acceptance remains pending, and supervised hardware checks cannot replace independent Phase 5 labels, calibration or held-out evaluation. Earlier execution ledgers and completed verification records below remain unchanged.
+
 ## Outcome and scope
 
 Build a reproducible way to ask what happened in a recording beyond song recognition, measure the answers against independent observations, and retain the evidence behind each conclusion. Begin with inspectable amplitude/quiet-region evidence. Later consider speech activity, announcements, music transitions, competition/bumper classification and heat reconstruction when labeled recordings support them.
