@@ -1,6 +1,6 @@
 # Prototype hardware and deployment requirements
 
-Status: selected prototype components, documented 2026-10-30 from the owner's hardware handoff. The Pi is the last component awaiting delivery. Assembly, device capabilities, installation and sustained operation have not been verified. This is the intended configuration, not a record of successful hardware acceptance.
+Status: hardware arrived; owner-reported initial bring-up on 2026-10-30 confirms SSH access, aarch64, Python 3.13.5, Debian 13 (trixie), ALSA 1.2.14, microphone enumeration as `hw:CARD=USOB55,DEV=0`, and a synchronized clock in `America/New_York`. The supplied disk listing shows the microSD but no USB SSD; storage detection is being investigated. Native audio formats, actual recording, power/cooling and sustained operation remain unverified. These observations are not full hardware acceptance.
 
 The baseline is a passive, single room microphone with no DJ-booth or mixer connection. See the [Pi setup and first-capture plan](pi-bring-up-plan.md), [current status](status.md) and [roadmap](implementation-plan.md#phase-6-live-capture-and-event-trial). Direct feeds and dual-feed synchronization, fallback and reconciliation remain deferred.
 

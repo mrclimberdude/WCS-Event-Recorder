@@ -58,8 +58,14 @@ def linux_transcript(monkeypatch, config):
     return transcripts, calls
 
 
-def test_nonrecording_preflight_has_controlled_facts(config, linux_transcript):
+@pytest.mark.parametrize('banner', [
+    'arecord: version 1.2.8\n',
+    'arecord: version 1.2.14 by Jaroslav Kysela <perex@perex.cz>\n',
+])
+def test_nonrecording_preflight_has_controlled_facts(config, linux_transcript, banner):
+    linux_transcript[0]['arecord --version'] = banner
     result = checks.capture_preflight(config)
+    assert result['alsa_version'] == ('1.2.14' if '1.2.14' in banner else '1.2.8')
     assert result["network_requests"] == 0
     assert result["microphone_opened"] is False
     assert result["clock"]["independent_accuracy_verified"] is False

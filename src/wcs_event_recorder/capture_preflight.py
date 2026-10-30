@@ -205,7 +205,8 @@ def capture_preflight(config, *, check_write=False):
     if shutil.which("arecord") is None or shutil.which("findmnt") is None:
         raise CaptureError("capture_tool_missing")
     alsa = _run_command(["arecord", "--version"])
-    match = re.fullmatch(r"arecord: version ([0-9]+(?:\.[0-9]+){1,3})\s*", alsa)
+    match = re.fullmatch(r"arecord: version ([0-9]+(?:\.[0-9]+){1,3})"
+                         r"(?: by Jaroslav Kysela <perex@perex\.cz>)?\s*", alsa)
     if match is None:
         raise CaptureError("alsa_version_unrecognized")
     devices = _run_command(["arecord", "--list-devices"])
